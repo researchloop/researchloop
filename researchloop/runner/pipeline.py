@@ -39,7 +39,7 @@ class Pipeline:
         claude_md: str,
         idea: str,
         orchestrator_url: str,
-        api_key: str,
+        shared_secret: str,
         red_team_rounds: int = 3,
     ) -> None:
         self.sprint_id = sprint_id
@@ -47,7 +47,7 @@ class Pipeline:
         self.claude_md = claude_md
         self.idea = idea
         self.orchestrator_url = orchestrator_url
-        self.api_key = api_key
+        self.shared_secret = shared_secret
         self.red_team_rounds = red_team_rounds
 
         self._started_at = datetime.now(timezone.utc).isoformat()
@@ -216,7 +216,7 @@ class Pipeline:
         try:
             await send_heartbeat(
                 orchestrator_url=self.orchestrator_url,
-                api_key=self.api_key,
+                shared_secret=self.shared_secret,
                 sprint_id=self.sprint_id,
                 status=status,
                 step=step,
@@ -260,7 +260,7 @@ class Pipeline:
                 try:
                     await send_heartbeat(
                         orchestrator_url=self.orchestrator_url,
-                        api_key=self.api_key,
+                        shared_secret=self.shared_secret,
                         sprint_id=self.sprint_id,
                         status=data.get("status", "running"),
                         step=data.get("step", 0),

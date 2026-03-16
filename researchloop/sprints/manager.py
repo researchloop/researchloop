@@ -162,7 +162,7 @@ class SprintManager:
             else "8:00:00",
             environment=cluster_cfg.environment,
             orchestrator_url=self.config.orchestrator_url or "",
-            api_key=self.config.api_key or "",
+            shared_secret=self.config.shared_secret or "",
             claude_md_path=study_cfg.claude_md_path if study_cfg else "",
             red_team_max_rounds=study_cfg.red_team_max_rounds if study_cfg else 3,
         )

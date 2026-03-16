@@ -90,7 +90,7 @@ class Config:
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     db_path: str = "researchloop.db"
     artifact_dir: str = "artifacts"
-    api_key: str | None = None
+    shared_secret: str | None = None
     orchestrator_url: str | None = None
 
 
@@ -157,7 +157,7 @@ def _parse_config(data: dict) -> Config:
         dashboard=dashboard,
         db_path=data.get("db_path", "researchloop.db"),
         artifact_dir=data.get("artifact_dir", "artifacts"),
-        api_key=data.get("api_key"),
+        shared_secret=data.get("shared_secret"),
         orchestrator_url=data.get("orchestrator_url"),
     )
 
@@ -219,7 +219,7 @@ def _apply_env_overrides(config: Config) -> None:
 
     Env vars take precedence over TOML values.  Supported vars::
 
-        RESEARCHLOOP_API_KEY
+        RESEARCHLOOP_SHARED_SECRET
         RESEARCHLOOP_ORCHESTRATOR_URL
         RESEARCHLOOP_DB_PATH
         RESEARCHLOOP_ARTIFACT_DIR
@@ -233,8 +233,8 @@ def _apply_env_overrides(config: Config) -> None:
         RESEARCHLOOP_DASHBOARD_HOST
     """
     # Top-level secrets / settings
-    if v := _env("API_KEY"):
-        config.api_key = v
+    if v := _env("SHARED_SECRET"):
+        config.shared_secret = v
     if v := _env("ORCHESTRATOR_URL"):
         config.orchestrator_url = v
     if v := _env("DB_PATH"):

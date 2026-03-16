@@ -25,14 +25,14 @@ _UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=120.0, pool=10.0)
 _WEBHOOK_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=10.0)
 
 
-def _auth_headers(api_key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_key}"}
+def _auth_headers(shared_secret: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {shared_secret}"}
 
 
 async def upload_artifacts(
     sprint_dir: str,
     orchestrator_url: str,
-    api_key: str,
+    shared_secret: str,
     sprint_id: str,
 ) -> list[str]:
     """Scan *sprint_dir* for key artifacts and upload them to the orchestrator.
@@ -77,7 +77,7 @@ async def upload_artifacts(
                 with open(file_path, "rb") as f:
                     resp = await client.post(
                         url,
-                        headers=_auth_headers(api_key),
+                        headers=_auth_headers(shared_secret),
                         files={"file": (file_path.name, f, mime_type)},
                     )
                 resp.raise_for_status()
@@ -91,7 +91,7 @@ async def upload_artifacts(
 
 async def send_webhook(
     orchestrator_url: str,
-    api_key: str,
+    shared_secret: str,
     sprint_id: str,
     status: str,
     summary: str | None = None,
@@ -113,7 +113,7 @@ async def send_webhook(
         resp = await client.post(
             url,
             headers={
-                **_auth_headers(api_key),
+                **_auth_headers(shared_secret),
                 "Content-Type": "application/json",
             },
             json=payload,
@@ -125,7 +125,7 @@ async def send_webhook(
 
 async def send_heartbeat(
     orchestrator_url: str,
-    api_key: str,
+    shared_secret: str,
     sprint_id: str,
     status: str,
     step: int,
@@ -145,7 +145,7 @@ async def send_heartbeat(
         resp = await client.post(
             url,
             headers={
-                **_auth_headers(api_key),
+                **_auth_headers(shared_secret),
                 "Content-Type": "application/json",
             },
             json=payload,

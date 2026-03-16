@@ -4,7 +4,7 @@
 # Global settings
 db_path = "researchloop.db"
 artifact_dir = "artifacts"
-# api_key = "shared-secret-for-runner-auth"
+# shared_secret = "shared-secret-for-runner-auth"
 # orchestrator_url = "https://your-orchestrator.example.com"
 
 # ---------------------------------------------------------------------------

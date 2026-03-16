@@ -25,9 +25,9 @@ class TestLoadConfig:
         assert config.dashboard.port == 9090
         assert config.dashboard.enabled is True
 
-    def test_api_key_parsed(self, toml_config_file):
+    def test_shared_secret_parsed(self, toml_config_file):
         config = load_config(str(toml_config_file))
-        assert config.api_key == "test-key"
+        assert config.shared_secret == "test-key"
 
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
@@ -46,17 +46,17 @@ class TestLoadConfig:
         assert config.artifact_dir == "artifacts"
         assert config.dashboard.host == "0.0.0.0"
         assert config.dashboard.port == 8080
-        assert config.api_key is None
+        assert config.shared_secret is None
         assert config.slack is None
 
 
 class TestEnvOverrides:
     """Env vars with RESEARCHLOOP_ prefix override TOML values."""
 
-    def test_api_key(self, toml_config_file, monkeypatch):
-        monkeypatch.setenv("RESEARCHLOOP_API_KEY", "from-env")
+    def test_shared_secret(self, toml_config_file, monkeypatch):
+        monkeypatch.setenv("RESEARCHLOOP_SHARED_SECRET", "from-env")
         config = load_config(str(toml_config_file))
-        assert config.api_key == "from-env"
+        assert config.shared_secret == "from-env"
 
     def test_orchestrator_url(self, toml_config_file, monkeypatch):
         monkeypatch.setenv("RESEARCHLOOP_ORCHESTRATOR_URL", "https://x.io")
@@ -120,4 +120,4 @@ class TestEnvOverrides:
     def test_env_does_not_override_when_unset(self, toml_config_file):
         """Without env vars, TOML values are preserved."""
         config = load_config(str(toml_config_file))
-        assert config.api_key == "test-key"  # from TOML
+        assert config.shared_secret == "test-key"  # from TOML

@@ -40,7 +40,7 @@ def sample_config() -> Config:
         ],
         db_path=":memory:",
         artifact_dir=tempfile.mkdtemp(),
-        api_key="test-api-key",
+        shared_secret="test-api-key",
         orchestrator_url="http://localhost:8080",
     )
 
@@ -76,7 +76,7 @@ def toml_config_file(tmp_path: Path) -> Path:
     content = """
 db_path = "researchloop.db"
 artifact_dir = "artifacts"
-api_key = "test-key"
+shared_secret = "test-key"
 
 [[cluster]]
 name = "local"

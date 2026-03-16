@@ -45,7 +45,7 @@ def _make_app(
         ],
         db_path=":memory:",
         artifact_dir=tempfile.mkdtemp(),
-        api_key="test-key",
+        shared_secret="test-key",
         dashboard=DashboardConfig(
             password_hash=password_hash,
         ),

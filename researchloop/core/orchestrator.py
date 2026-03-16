@@ -242,21 +242,23 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
 
     # -- Auth helper ----------------------------------------------------
 
-    def _check_api_key(x_api_key: str | None) -> None:
-        """Raise 401 if the request API key does not match."""
-        expected = orchestrator.config.api_key
-        if expected and x_api_key != expected:
-            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    def _check_shared_secret(x_shared_secret: str | None) -> None:
+        """Raise 401 if the request shared secret does not match."""
+        expected = orchestrator.config.shared_secret
+        if expected and x_shared_secret != expected:
+            raise HTTPException(
+                status_code=401, detail="Invalid or missing shared secret"
+            )
 
     # -- Webhook routes -------------------------------------------------
 
     @app.post("/api/webhook/sprint-complete")
     async def webhook_sprint_complete(
         request: Request,
-        x_api_key: str | None = Header(default=None),
+        x_shared_secret: str | None = Header(default=None),
     ) -> JSONResponse:
         """Handle sprint completion webhook from the runner."""
-        _check_api_key(x_api_key)
+        _check_shared_secret(x_shared_secret)
 
         body: dict[str, Any] = await request.json()
         sprint_id: str = body.get("sprint_id", "")
@@ -289,10 +291,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     @app.post("/api/webhook/heartbeat")
     async def webhook_heartbeat(
         request: Request,
-        x_api_key: str | None = Header(default=None),
+        x_shared_secret: str | None = Header(default=None),
     ) -> JSONResponse:
         """Handle heartbeat from the runner."""
-        _check_api_key(x_api_key)
+        _check_shared_secret(x_shared_secret)
 
         body: dict[str, Any] = await request.json()
         sprint_id: str = body.get("sprint_id", "")
@@ -327,10 +329,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     async def upload_artifact(
         sprint_id: str,
         file: UploadFile,
-        x_api_key: str | None = Header(default=None),
+        x_shared_secret: str | None = Header(default=None),
     ) -> JSONResponse:
         """Receive and store an artifact file for a sprint."""
-        _check_api_key(x_api_key)
+        _check_shared_secret(x_shared_secret)
 
         assert orchestrator.db is not None
 

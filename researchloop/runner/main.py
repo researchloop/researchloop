@@ -25,7 +25,7 @@ async def _run_pipeline(
     claude_md: str,
     idea: str,
     orchestrator_url: str,
-    api_key: str,
+    shared_secret: str,
     red_team_rounds: int,
 ) -> None:
     """Execute the full pipeline and report back to the orchestrator."""
@@ -40,7 +40,7 @@ async def _run_pipeline(
         claude_md=claude_md,
         idea=idea,
         orchestrator_url=orchestrator_url,
-        api_key=api_key,
+        shared_secret=shared_secret,
         red_team_rounds=red_team_rounds,
     )
 
@@ -64,7 +64,7 @@ async def _run_pipeline(
             uploaded = await upload_artifacts(
                 sprint_dir=sprint_dir,
                 orchestrator_url=orchestrator_url,
-                api_key=api_key,
+                shared_secret=shared_secret,
                 sprint_id=sprint_id,
             )
             logger.info("Uploaded %d artifact(s)", len(uploaded))
@@ -75,7 +75,7 @@ async def _run_pipeline(
     try:
         await send_webhook(
             orchestrator_url=orchestrator_url,
-            api_key=api_key,
+            shared_secret=shared_secret,
             sprint_id=sprint_id,
             status=final_status,
             summary=summary,
@@ -102,7 +102,9 @@ def cli() -> None:
 @click.option(
     "--orchestrator-url", required=True, help="Base URL of the orchestrator API"
 )
-@click.option("--api-key", required=True, help="API key for orchestrator auth")
+@click.option(
+    "--shared-secret", required=True, help="Shared secret for orchestrator auth"
+)
 @click.option(
     "--red-team-rounds",
     default=3,
@@ -115,7 +117,7 @@ def run(
     claude_md: str,
     idea: str,
     orchestrator_url: str,
-    api_key: str,
+    shared_secret: str,
     red_team_rounds: int,
 ) -> None:
     """Run the full research sprint pipeline."""
@@ -132,7 +134,7 @@ def run(
             claude_md=claude_md,
             idea=idea,
             orchestrator_url=orchestrator_url,
-            api_key=api_key,
+            shared_secret=shared_secret,
             red_team_rounds=red_team_rounds,
         )
     )

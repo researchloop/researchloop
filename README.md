@@ -78,7 +78,7 @@ Edit `researchloop.toml`:
 ```toml
 db_path = "researchloop.db"
 artifact_dir = "artifacts"
-api_key = "your-shared-secret"             # auth between runner and orchestrator
+shared_secret = "your-shared-secret"             # auth between runner and orchestrator
 orchestrator_url = "https://your-host.com" # where the runner sends webhooks
 
 [[cluster]]
@@ -114,7 +114,7 @@ Secrets and sensitive settings can be configured via environment variables inste
 
 | Env var | Overrides |
 |---------|-----------|
-| `RESEARCHLOOP_API_KEY` | `api_key` |
+| `RESEARCHLOOP_SHARED_SECRET` | `shared_secret` |
 | `RESEARCHLOOP_ORCHESTRATOR_URL` | `orchestrator_url` |
 | `RESEARCHLOOP_DB_PATH` | `db_path` |
 | `RESEARCHLOOP_ARTIFACT_DIR` | `artifact_dir` |
@@ -182,11 +182,11 @@ The orchestrator exposes these HTTP endpoints:
 | `GET` | `/api/studies` | No | List all studies |
 | `GET` | `/api/sprints` | No | List sprints (optional `?study_name=`) |
 | `GET` | `/api/sprints/{id}` | No | Get sprint details |
-| `POST` | `/api/webhook/sprint-complete` | API key | Sprint completion callback |
-| `POST` | `/api/webhook/heartbeat` | API key | Runner heartbeat |
-| `POST` | `/api/artifacts/{sprint_id}` | API key | Upload artifact file |
+| `POST` | `/api/webhook/sprint-complete` | Shared secret | Sprint completion callback |
+| `POST` | `/api/webhook/heartbeat` | Shared secret | Runner heartbeat |
+| `POST` | `/api/artifacts/{sprint_id}` | Shared secret | Upload artifact file |
 
-API key is passed via `X-Api-Key` header.
+Shared secret is passed via `X-Shared-Secret` header.
 
 ## Project structure
 

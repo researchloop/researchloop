@@ -15,7 +15,9 @@ from researchloop.core.orchestrator import Orchestrator, create_app
 from researchloop.db import queries
 
 
-def _make_app(api_key: str | None = "test-key") -> tuple[TestClient, Orchestrator]:
+def _make_app(
+    shared_secret: str | None = "test-key",
+) -> tuple[TestClient, Orchestrator]:
     """Create a TestClient with an in-memory orchestrator."""
     config = Config(
         studies=[StudyConfig(name="test", cluster="local", sprints_dir="./sp")],
@@ -24,7 +26,7 @@ def _make_app(api_key: str | None = "test-key") -> tuple[TestClient, Orchestrato
         ],
         db_path=":memory:",
         artifact_dir=tempfile.mkdtemp(),
-        api_key=api_key,
+        shared_secret=shared_secret,
     )
     orch = Orchestrator(config)
     app = create_app(orch)
@@ -85,7 +87,7 @@ class TestSprintsAPI:
 
 class TestWebhookAuth:
     def test_webhook_rejects_no_key(self):
-        client, _ = _make_app(api_key="secret")
+        client, _ = _make_app(shared_secret="secret")
         with client:
             resp = client.post(
                 "/api/webhook/sprint-complete",
@@ -97,17 +99,17 @@ class TestWebhookAuth:
             assert resp.status_code == 401
 
     def test_webhook_rejects_wrong_key(self):
-        client, _ = _make_app(api_key="secret")
+        client, _ = _make_app(shared_secret="secret")
         with client:
             resp = client.post(
                 "/api/webhook/sprint-complete",
                 json={"sprint_id": "sp-001", "status": "completed"},
-                headers={"x-api-key": "wrong"},
+                headers={"x-shared-secret": "wrong"},
             )
             assert resp.status_code == 401
 
     async def test_no_auth_when_no_key_configured(self):
-        client, orch = _make_app(api_key=None)
+        client, orch = _make_app(shared_secret=None)
         with client:
             await queries.create_sprint(orch.db, "sp-001", "test", "idea")
             resp = client.post(
@@ -132,7 +134,7 @@ class TestWebhookSprintComplete:
                     "status": "completed",
                     "summary": "All good",
                 },
-                headers={"x-api-key": "test-key"},
+                headers={"x-shared-secret": "test-key"},
             )
             assert resp.status_code == 200
             assert resp.json()["ok"] is True
@@ -147,7 +149,7 @@ class TestWebhookSprintComplete:
             resp = client.post(
                 "/api/webhook/sprint-complete",
                 json={"status": "completed"},
-                headers={"x-api-key": "test-key"},
+                headers={"x-shared-secret": "test-key"},
             )
             assert resp.status_code == 400
 
@@ -160,7 +162,7 @@ class TestWebhookHeartbeat:
             resp = client.post(
                 "/api/webhook/heartbeat",
                 json={"sprint_id": "sp-001", "phase": "research"},
-                headers={"x-api-key": "test-key"},
+                headers={"x-shared-secret": "test-key"},
             )
             assert resp.status_code == 200
             sprint = await queries.get_sprint(orch.db, "sp-001")
@@ -177,7 +179,7 @@ class TestArtifactUpload:
                 files={
                     "file": ("report.md", b"# Report\nContent here.", "text/markdown")
                 },
-                headers={"x-api-key": "test-key"},
+                headers={"x-shared-secret": "test-key"},
             )
             assert resp.status_code == 201
             data = resp.json()
@@ -193,6 +195,6 @@ class TestArtifactUpload:
             resp = client.post(
                 "/api/artifacts/sp-nonexistent",
                 files={"file": ("f.txt", b"data", "text/plain")},
-                headers={"x-api-key": "test-key"},
+                headers={"x-shared-secret": "test-key"},
             )
             assert resp.status_code == 404

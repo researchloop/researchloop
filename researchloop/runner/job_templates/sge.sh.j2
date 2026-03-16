@@ -31,7 +31,7 @@ researchloop-runner run \
     --claude-md "{{ claude_md_path }}" \
     --idea "{{ idea }}" \
     --orchestrator-url "{{ orchestrator_url }}" \
-    --api-key "{{ api_key }}" \
+    --shared-secret "{{ shared_secret }}" \
     --red-team-rounds {{ red_team_max_rounds }}
 
 EXIT_CODE=$?
