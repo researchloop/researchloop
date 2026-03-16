@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Sprints — ResearchLoop{% endblock %}
+{% block content %}
+<h2>Sprints</h2>
+<table>
+  <thead><tr><th>ID</th><th>Study</th><th>Status</th><th>Idea</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for sp in sprints %}
+    <tr>
+      <td><a href="/dashboard/sprints/{{ sp.id }}">{{ sp.id }}</a></td>
+      <td><a href="/dashboard/studies/{{ sp.study_name }}">{{ sp.study_name }}</a></td>
+      <td><span class="badge badge-{{ sp.status }}">{{ sp.status }}</span></td>
+      <td>{{ sp.idea[:50] }}{% if sp.idea|length > 50 %}…{% endif %}</td>
+      <td class="dim">{{ sp.created_at }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

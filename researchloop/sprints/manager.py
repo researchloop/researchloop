@@ -146,9 +146,10 @@ class SprintManager:
                 f"or type {cluster_cfg.scheduler_type!r}"
             )
 
-        # Render the SLURM job script.
+        # Render the job script for the appropriate scheduler.
         sprint_dirname = sprint.get("directory", sprint_id)
-        template = _jinja_env.get_template("slurm.sh.j2")
+        template_name = f"{cluster_cfg.scheduler_type}.sh.j2"
+        template = _jinja_env.get_template(template_name)
         job_script = template.render(
             sprint_id=sprint_id,
             study_name=study_name,

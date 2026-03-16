@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
+import shutil
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+import jinja2
 
 if TYPE_CHECKING:
     from researchloop.core.config import Config
@@ -13,6 +18,13 @@ if TYPE_CHECKING:
     from researchloop.sprints.manager import SprintManager
 
 from researchloop.db import queries
+
+_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "runner" / "templates"
+_jinja_env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(str(_TEMPLATES_DIR)),
+    keep_trailing_newline=True,
+    undefined=jinja2.StrictUndefined,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +37,9 @@ def _generate_loop_id() -> str:
 class AutoLoopController:
     """Controls automated multi-sprint research loops.
 
-    Phase 1 implements ``start`` and ``stop`` fully.  The
-    ``on_sprint_complete`` callback that chains sprints together by
-    generating new ideas is stubbed for Phase 2.
+    On sprint completion the controller generates the next research
+    idea (via ``claude -p`` or a heuristic fallback) and starts the
+    next sprint automatically.
     """
 
     def __init__(
@@ -82,19 +94,16 @@ class AutoLoopController:
         return loop_id
 
     # ------------------------------------------------------------------
-    # Sprint completion callback (Phase 2 stub)
+    # Sprint completion callback
     # ------------------------------------------------------------------
 
     async def on_sprint_complete(self, sprint_id: str) -> None:
         """Handle completion of a sprint that belongs to an auto-loop.
 
-        In Phase 2 this will:
         1. Look up the auto-loop that owns this sprint.
         2. Increment ``completed_count``.
-        3. Generate the next research idea (via LLM or heuristic).
-        4. Start the next sprint.
-
-        For now, it logs a placeholder message.
+        3. If all sprints are done, mark the loop completed.
+        4. Otherwise generate the next idea and start a new sprint.
         """
         # Find auto-loops where this sprint is the current one.
         all_loops = await queries.list_auto_loops(self.db)
@@ -105,12 +114,16 @@ class AutoLoopController:
                 break
 
         if parent_loop is None:
-            logger.debug("Sprint %s is not part of any auto-loop", sprint_id)
+            logger.debug(
+                "Sprint %s is not part of any auto-loop",
+                sprint_id,
+            )
             return
 
         loop_id = parent_loop["id"]
         completed = parent_loop.get("completed_count", 0) + 1
         total = parent_loop["total_count"]
+        study_name: str = parent_loop["study_name"]
 
         await queries.update_auto_loop(
             self.db,
@@ -123,7 +136,7 @@ class AutoLoopController:
                 self.db,
                 loop_id,
                 status="completed",
-                stopped_at=datetime.now(timezone.utc).isoformat(),
+                stopped_at=(datetime.now(timezone.utc).isoformat()),
             )
             logger.info(
                 "Auto-loop %s completed (%d/%d sprints done)",
@@ -133,15 +146,142 @@ class AutoLoopController:
             )
             return
 
-        # Phase 2: generate next idea and start next sprint.
-        logger.info(
-            "Auto-loop %s: sprint %s complete (%d/%d). "
-            "Auto-loop idea generation not yet implemented.",
-            loop_id,
-            sprint_id,
-            completed,
-            total,
+        # Generate the next idea and kick off the next sprint.
+        next_num = completed + 1
+        idea = await self._generate_next_idea(
+            loop_id=loop_id,
+            study_name=study_name,
+            sprint_number=next_num,
+            total=total,
         )
+
+        sprint = await self.sprint_manager.run_sprint(
+            study_name,
+            idea,
+        )
+
+        await queries.update_auto_loop(
+            self.db,
+            loop_id,
+            current_sprint_id=sprint.id,
+        )
+
+        logger.info(
+            "Auto-loop %s: started sprint %d/%d (%s)",
+            loop_id,
+            next_num,
+            total,
+            sprint.id,
+        )
+
+    # ------------------------------------------------------------------
+    # Idea generation
+    # ------------------------------------------------------------------
+
+    async def _generate_next_idea(
+        self,
+        loop_id: str,
+        study_name: str,
+        sprint_number: int,
+        total: int,
+    ) -> str:
+        """Generate the next research idea for the auto-loop.
+
+        Renders the ``idea_generator.md.j2`` template with previous
+        sprint summaries and the study's CLAUDE.md context, then
+        invokes ``claude -p`` locally.  Falls back to a simple
+        heuristic if the CLI is unavailable.
+        """
+        # Collect summaries of completed sprints for this study.
+        sprints = await queries.list_sprints(
+            self.db,
+            study_name=study_name,
+            limit=total,
+        )
+        previous: list[dict[str, str]] = []
+        for sp in sprints:
+            summary = sp.get("summary") or ""
+            if summary:
+                previous.append(
+                    {"id": sp["id"], "summary": summary},
+                )
+
+        # Read the study's CLAUDE.md context if available.
+        study_context = ""
+        study_row = await queries.get_study(self.db, study_name)
+        if study_row and study_row.get("claude_md_path"):
+            md_path = Path(study_row["claude_md_path"])
+            if md_path.is_file():
+                try:
+                    study_context = md_path.read_text(
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    logger.warning(
+                        "Could not read CLAUDE.md at %s",
+                        md_path,
+                    )
+
+        # Render the prompt template.
+        template = _jinja_env.get_template(
+            "idea_generator.md.j2",
+        )
+        prompt = template.render(
+            study_context=study_context or "(none)",
+            previous_sprints=previous,
+        )
+
+        # Try running claude -p locally.
+        fallback = (
+            f"Continue exploring based on previous findings"
+            f" (auto-loop {loop_id}"
+            f" sprint {sprint_number}/{total})"
+        )
+
+        if not shutil.which("claude"):
+            logger.info(
+                "claude CLI not found; using fallback idea",
+            )
+            return fallback
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "claude",
+                "-p",
+                prompt,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=120,
+            )
+
+            if proc.returncode != 0:
+                logger.warning(
+                    "claude -p failed (rc=%d): %s",
+                    proc.returncode,
+                    stderr.decode().strip(),
+                )
+                return fallback
+
+            idea = stdout.decode().strip()
+            if not idea:
+                logger.warning("claude -p returned empty output")
+                return fallback
+
+            logger.info(
+                "Auto-loop %s: generated idea via claude CLI",
+                loop_id,
+            )
+            return idea
+
+        except (asyncio.TimeoutError, OSError) as exc:
+            logger.warning(
+                "claude -p error: %s; using fallback idea",
+                exc,
+            )
+            return fallback
 
     # ------------------------------------------------------------------
     # Stop

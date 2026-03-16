@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Studies — ResearchLoop{% endblock %}
+{% block content %}
+<h2>Studies</h2>
+<table>
+  <thead><tr><th>Name</th><th>Cluster</th><th>Description</th><th>Sprints</th></tr></thead>
+  <tbody>
+  {% for s in studies %}
+    <tr>
+      <td><a href="/dashboard/studies/{{ s.name }}">{{ s.name }}</a></td>
+      <td>{{ s.cluster }}</td>
+      <td>{{ s.description or '' }}</td>
+      <td>{{ s.sprint_count }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

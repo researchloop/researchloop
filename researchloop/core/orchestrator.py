@@ -15,8 +15,13 @@ from fastapi.responses import JSONResponse
 
 from researchloop.clusters.monitor import JobMonitor
 from researchloop.clusters.ssh import SSHManager
+from researchloop.comms.conversation import ConversationManager
 from researchloop.comms.ntfy import NtfyNotifier
 from researchloop.comms.router import NotificationRouter
+from researchloop.comms.slack import (
+    SlackNotifier,
+    verify_slack_signature,
+)
 from researchloop.core.config import Config
 from researchloop.db.database import Database
 from researchloop.schedulers.base import BaseScheduler
@@ -46,6 +51,7 @@ class Orchestrator:
         self.auto_loop: AutoLoopController | None = None
         self.notification_router: NotificationRouter | None = None
         self.job_monitor: JobMonitor | None = None
+        self.conversation_manager: ConversationManager | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -79,7 +85,20 @@ class Orchestrator:
                 topic=self.config.ntfy.topic,
             )
             self.notification_router.add_notifier(ntfy)
-            logger.info("ntfy notifier configured for topic %r", self.config.ntfy.topic)
+            logger.info(
+                "ntfy notifier configured for topic %r",
+                self.config.ntfy.topic,
+            )
+        if self.config.slack and self.config.slack.bot_token:
+            slack_notifier = SlackNotifier(
+                bot_token=self.config.slack.bot_token,
+                channel_id=self.config.slack.channel_id,
+            )
+            self.notification_router.add_notifier(slack_notifier)
+            logger.info("Slack notifier configured")
+
+        # 5b. Conversation manager
+        self.conversation_manager = ConversationManager(self.db)
 
         # 6. Sprint manager
         self.sprint_manager = SprintManager(
@@ -385,5 +404,105 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         assert orchestrator.study_manager is not None
         studies = await orchestrator.study_manager.list_all()
         return JSONResponse({"studies": studies})
+
+    # -- Slack Events API -----------------------------------------------
+
+    @app.post("/api/slack/events")
+    async def slack_events(request: Request) -> JSONResponse:
+        """Handle Slack Events API callbacks."""
+        raw_body = await request.body()
+        body: dict[str, Any] = json.loads(raw_body)
+
+        # URL verification challenge
+        if body.get("type") == "url_verification":
+            return JSONResponse({"challenge": body.get("challenge", "")})
+
+        # Signature verification
+        slack_cfg = orchestrator.config.slack
+        if slack_cfg and slack_cfg.signing_secret:
+            ts = request.headers.get("X-Slack-Request-Timestamp", "")
+            sig = request.headers.get("X-Slack-Signature", "")
+            if not verify_slack_signature(
+                slack_cfg.signing_secret,
+                ts,
+                raw_body,
+                sig,
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Invalid Slack signature",
+                )
+
+        if body.get("type") != "event_callback":
+            return JSONResponse({"ok": True})
+
+        event = body.get("event", {})
+        event_type = event.get("type", "")
+
+        # Ignore bot messages to avoid loops
+        if event.get("bot_id"):
+            return JSONResponse({"ok": True})
+
+        if event_type not in ("app_mention", "message"):
+            return JSONResponse({"ok": True})
+
+        text: str = event.get("text", "")
+        thread_ts: str = event.get("thread_ts") or event.get("ts", "")
+        channel: str = event.get("channel", "")
+
+        # Handle "sprint run <study> <idea>" commands
+        if "sprint run" in text.lower():
+            parts = text.lower().split("sprint run", 1)[1]
+            tokens = parts.strip().split(None, 1)
+            study_name = tokens[0] if tokens else ""
+            idea = tokens[1] if len(tokens) > 1 else ""
+
+            if (
+                study_name
+                and idea
+                and orchestrator.sprint_manager is not None
+                and slack_cfg
+                and slack_cfg.bot_token
+            ):
+                notifier = SlackNotifier(
+                    bot_token=slack_cfg.bot_token,
+                    channel_id=channel,
+                )
+                try:
+                    sprint = await orchestrator.sprint_manager.run_sprint(
+                        study_name, idea
+                    )
+                    await notifier._post_message(
+                        f"Sprint *{sprint.id}* submitted for study *{study_name}*.",
+                        thread_ts=thread_ts,
+                    )
+                except Exception as exc:
+                    await notifier._post_message(
+                        f"Failed to start sprint: {exc}",
+                        thread_ts=thread_ts,
+                    )
+                return JSONResponse({"ok": True})
+
+        # Conversational mode via ConversationManager
+        cm = orchestrator.conversation_manager
+        if cm is not None and slack_cfg and slack_cfg.bot_token:
+            response_text = await cm.handle_message(
+                thread_ts=thread_ts,
+                user_text=text,
+            )
+            notifier = SlackNotifier(
+                bot_token=slack_cfg.bot_token,
+                channel_id=channel,
+            )
+            await notifier._post_message(response_text, thread_ts=thread_ts)
+
+        return JSONResponse({"ok": True})
+
+    # -- Dashboard HTML routes -----------------------------------------
+    from researchloop.dashboard.routes import (
+        add_dashboard_routes,
+    )
+
+    add_dashboard_routes(app, orchestrator)
 
     return app

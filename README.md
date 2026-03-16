@@ -208,10 +208,10 @@ uv run ruff format .
 ## Roadmap
 
 - [x] **Phase 1** — Core platform, sprint runner, SLURM scheduler, CLI, tests, CI
-- [ ] **Phase 2** — Auto-loop with LLM-generated ideas between sprints
-- [ ] **Phase 3** — Slack integration (Events API, conversational threads)
-- [ ] **Phase 4** — Web dashboard (FastAPI + HTMX, password auth)
-- [ ] **Phase 5** — SGE scheduler, docs, PyPI release
+- [x] **Phase 2** — Auto-loop with LLM-generated ideas between sprints
+- [x] **Phase 3** — Slack integration (Events API, conversational threads)
+- [x] **Phase 4** — Web dashboard (FastAPI + Jinja2, password auth)
+- [x] **Phase 5** — SGE scheduler, error handling, polish
 
 ## License
 

@@ -1,0 +1,39 @@
+#!/bin/bash
+#$ -N {{ job_name }}
+#$ -o {{ working_dir }}/{{ sprint_dirname }}/.researchloop/sge-$JOB_ID.out
+#$ -e {{ working_dir }}/{{ sprint_dirname }}/.researchloop/sge-$JOB_ID.err
+#$ -l h_rt={{ time_limit }}
+#$ -cwd
+#$ -S /bin/bash
+
+set -euo pipefail
+
+# --- Environment ---
+{% for key, value in environment.items() %}
+export {{ key }}="{{ value }}"
+{% endfor %}
+
+export RESEARCHLOOP_SPRINT_ID="{{ sprint_id }}"
+export RESEARCHLOOP_STUDY_NAME="{{ study_name }}"
+
+SPRINT_DIR="{{ working_dir }}/{{ sprint_dirname }}"
+cd "$SPRINT_DIR"
+mkdir -p .researchloop results
+
+echo "=== ResearchLoop Sprint {{ sprint_id }} (SGE) ==="
+echo "Study: {{ study_name }}"
+echo "Idea: {{ idea }}"
+echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+researchloop-runner run \
+    --sprint-id "{{ sprint_id }}" \
+    --sprint-dir "$SPRINT_DIR" \
+    --claude-md "{{ claude_md_path }}" \
+    --idea "{{ idea }}" \
+    --orchestrator-url "{{ orchestrator_url }}" \
+    --api-key "{{ api_key }}" \
+    --red-team-rounds {{ red_team_max_rounds }}
+
+EXIT_CODE=$?
+echo "Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+exit $EXIT_CODE

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Auto-Loops — ResearchLoop{% endblock %}
+{% block content %}
+<h2>Auto-Loops</h2>
+<table>
+  <thead><tr><th>ID</th><th>Study</th><th>Status</th><th>Progress</th><th>Current Sprint</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for lp in loops %}
+    <tr>
+      <td>{{ lp.id }}</td>
+      <td><a href="/dashboard/studies/{{ lp.study_name }}">{{ lp.study_name }}</a></td>
+      <td><span class="badge badge-{{ lp.status }}">{{ lp.status }}</span></td>
+      <td>{{ lp.completed_count }}/{{ lp.total_count }}</td>
+      <td>{% if lp.current_sprint_id %}<a href="/dashboard/sprints/{{ lp.current_sprint_id }}">{{ lp.current_sprint_id }}</a>{% else %}—{% endif %}</td>
+      <td class="dim">{{ lp.created_at }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

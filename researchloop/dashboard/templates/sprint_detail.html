@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ sprint.id }} — ResearchLoop{% endblock %}
+{% block content %}
+<h2>Sprint {{ sprint.id }}</h2>
+<div class="card">
+  <dl>
+    <dt>Study</dt><dd><a href="/dashboard/studies/{{ sprint.study_name }}">{{ sprint.study_name }}</a></dd>
+    <dt>Status</dt><dd><span class="badge badge-{{ sprint.status }}">{{ sprint.status }}</span></dd>
+    <dt>Idea</dt><dd>{{ sprint.idea }}</dd>
+    <dt>Job ID</dt><dd>{{ sprint.job_id or '—' }}</dd>
+    <dt>Directory</dt><dd class="dim">{{ sprint.directory or '—' }}</dd>
+    <dt>Created</dt><dd>{{ sprint.created_at }}</dd>
+    <dt>Started</dt><dd>{{ sprint.started_at or '—' }}</dd>
+    <dt>Completed</dt><dd>{{ sprint.completed_at or '—' }}</dd>
+    {% if sprint.error %}<dt>Error</dt><dd class="error">{{ sprint.error }}</dd>{% endif %}
+  </dl>
+</div>
+{% if sprint.summary %}
+<h3>Summary</h3>
+<div class="card"><p>{{ sprint.summary }}</p></div>
+{% endif %}
+{% if artifacts %}
+<h3>Artifacts</h3>
+<table>
+  <thead><tr><th>Filename</th><th>Size</th><th>Uploaded</th><th></th></tr></thead>
+  <tbody>
+  {% for a in artifacts %}
+    <tr>
+      <td>{{ a.filename }}</td>
+      <td class="dim">{% if a.size %}{{ (a.size / 1024)|round(1) }} KB{% endif %}</td>
+      <td class="dim">{{ a.uploaded_at }}</td>
+      <td><a href="/dashboard/artifacts/{{ a.id }}/download">Download</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
