@@ -16,14 +16,27 @@ RUN uv venv /app/.venv && \
 # Stage 2: Runtime
 FROM python:3.12-slim
 
+# Install SSH client (needed to connect to HPC clusters)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssh-client curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Claude CLI (needed for auto-loop idea generation + Slack)
+RUN curl -fsSL https://claude.ai/install.sh | sh || true
+
 WORKDIR /app
 
 # Copy virtual environment and application from builder
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/researchloop /app/researchloop
 
-# Put venv on PATH
-ENV PATH="/app/.venv/bin:$PATH"
+# Put venv and claude on PATH
+ENV PATH="/root/.claude/bin:/app/.venv/bin:$PATH"
+
+# Data directory — mount a persistent volume here
+ENV RESEARCHLOOP_DB_PATH="/data/researchloop.db"
+ENV RESEARCHLOOP_ARTIFACT_DIR="/data/artifacts"
+RUN mkdir -p /data/artifacts
 
 EXPOSE 8080
 
