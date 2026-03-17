@@ -8,15 +8,11 @@ from pathlib import Path
 _CREDENTIALS_PATH = Path.home() / ".config" / "researchloop" / "credentials.json"
 
 
-def save_credentials(url: str, shared_secret: str) -> Path:
-    """Save orchestrator credentials to disk."""
+def save_credentials(url: str, token: str) -> Path:
+    """Save orchestrator URL and API token to disk."""
     _CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
     _CREDENTIALS_PATH.write_text(
-        json.dumps(
-            {"url": url, "shared_secret": shared_secret},
-            indent=2,
-        )
-        + "\n",
+        json.dumps({"url": url, "token": token}, indent=2) + "\n",
         encoding="utf-8",
     )
     _CREDENTIALS_PATH.chmod(0o600)
@@ -29,7 +25,7 @@ def load_credentials() -> dict[str, str] | None:
         return None
     try:
         data = json.loads(_CREDENTIALS_PATH.read_text(encoding="utf-8"))
-        if data.get("url") and data.get("shared_secret"):
+        if data.get("url") and data.get("token"):
             return data
         return None
     except (json.JSONDecodeError, OSError):

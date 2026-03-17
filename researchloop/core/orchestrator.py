@@ -242,13 +242,73 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
 
     # -- Auth helper ----------------------------------------------------
 
-    def _check_shared_secret(x_shared_secret: str | None) -> None:
-        """Raise 401 if the request shared secret does not match."""
-        expected = orchestrator.config.shared_secret
-        if expected and x_shared_secret != expected:
-            raise HTTPException(
-                status_code=401, detail="Invalid or missing shared secret"
+    from researchloop.dashboard.auth import (
+        SessionManager,
+        check_password,
+    )
+
+    _api_session_mgr = SessionManager()
+
+    async def _get_password_hash() -> str | None:
+        """Resolve dashboard password hash from config or DB."""
+        cfg_hash = orchestrator.config.dashboard.password_hash
+        if cfg_hash:
+            return cfg_hash
+        if orchestrator.db is not None:
+            row = await orchestrator.db.fetch_one(
+                "SELECT value FROM settings WHERE key = ?",
+                ("dashboard_password_hash",),
             )
+            if row:
+                return row["value"]
+        return None
+
+    def _check_shared_secret(
+        x_shared_secret: str | None = None,
+        authorization: str | None = None,
+    ) -> None:
+        """Raise 401 if neither shared secret nor bearer token is valid."""
+        # Check shared secret first.
+        expected = orchestrator.config.shared_secret
+        if expected and x_shared_secret == expected:
+            return
+
+        # Check bearer token.
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization[7:]
+            if _api_session_mgr.verify_token(token):
+                return
+
+        # If no auth mechanism is configured, allow access.
+        if not expected:
+            return
+
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing credentials",
+        )
+
+    @app.post("/api/auth")
+    async def api_auth(request: Request) -> JSONResponse:
+        """Authenticate with dashboard password, get API token."""
+        body = await request.json()
+        password = body.get("password", "")
+
+        pw_hash = await _get_password_hash()
+        if not pw_hash:
+            raise HTTPException(
+                status_code=400,
+                detail="No password configured on this server",
+            )
+
+        if not check_password(password, pw_hash):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid password",
+            )
+
+        token = _api_session_mgr.create_token()
+        return JSONResponse({"token": token})
 
     # -- Webhook routes -------------------------------------------------
 
@@ -256,9 +316,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     async def webhook_sprint_complete(
         request: Request,
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """Handle sprint completion webhook from the runner."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
 
         body: dict[str, Any] = await request.json()
         sprint_id: str = body.get("sprint_id", "")
@@ -292,9 +353,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     async def webhook_heartbeat(
         request: Request,
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """Handle heartbeat from the runner."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
 
         body: dict[str, Any] = await request.json()
         sprint_id: str = body.get("sprint_id", "")
@@ -330,9 +392,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         sprint_id: str,
         file: UploadFile,
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """Receive and store an artifact file for a sprint."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
 
         assert orchestrator.db is not None
 
@@ -384,9 +447,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         study_name: str | None = None,
         limit: int = 50,
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """List sprints, optionally filtered by study name."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
         assert orchestrator.sprint_manager is not None
         sprints = await orchestrator.sprint_manager.list_sprints(
             study_name=study_name, limit=limit
@@ -397,9 +461,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     async def get_sprint(
         sprint_id: str,
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """Get a single sprint by ID."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
         assert orchestrator.sprint_manager is not None
         sprint = await orchestrator.sprint_manager.get_sprint(sprint_id)
         if sprint is None:
@@ -409,9 +474,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     @app.get("/api/studies")
     async def list_studies(
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """List all studies."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
         assert orchestrator.study_manager is not None
         studies = await orchestrator.study_manager.list_all()
         return JSONResponse({"studies": studies})
@@ -422,9 +488,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     async def create_sprint(
         request: Request,
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """Create and submit a sprint."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
         assert orchestrator.sprint_manager is not None
         body = await request.json()
         study_name = body.get("study_name", "")
@@ -449,9 +516,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     async def cancel_sprint(
         sprint_id: str,
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """Cancel a sprint."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
         assert orchestrator.sprint_manager is not None
         success = await orchestrator.sprint_manager.cancel_sprint(sprint_id)
         return JSONResponse({"cancelled": success})
@@ -460,9 +528,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     async def create_loop(
         request: Request,
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """Start an auto-loop."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
         assert orchestrator.auto_loop is not None
         body = await request.json()
         study_name = body.get("study_name", "")
@@ -479,9 +548,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     async def stop_loop(
         loop_id: str,
         x_shared_secret: str | None = Header(default=None),
+        authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         """Stop an auto-loop."""
-        _check_shared_secret(x_shared_secret)
+        _check_shared_secret(x_shared_secret, authorization)
         assert orchestrator.auto_loop is not None
         await orchestrator.auto_loop.stop(loop_id)
         return JSONResponse({"stopped": True})

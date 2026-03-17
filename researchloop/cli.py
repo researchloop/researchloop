@@ -110,28 +110,25 @@ def _resolve_connection(
     from researchloop.core.credentials import load_credentials
 
     url: str | None = None
-    secret: str | None = None
+    headers: dict[str, str] = {}
 
-    # 1. Config / env vars.
+    # 1. Config / env vars (shared_secret for server-side usage).
     if config is not None:
         url = config.orchestrator_url
-        secret = config.shared_secret
+        if config.shared_secret:
+            headers["X-Shared-Secret"] = config.shared_secret
 
     # 2. Saved credentials (from `researchloop connect`).
     if not url:
         creds = load_credentials()
         if creds:
             url = creds["url"]
-            secret = secret or creds["shared_secret"]
+            headers["Authorization"] = f"Bearer {creds['token']}"
 
     if not url:
         raise click.ClickException(
             "Not connected to an orchestrator. Run:\n  researchloop connect <url>"
         )
-
-    headers: dict[str, str] = {}
-    if secret:
-        headers["X-Shared-Secret"] = secret
 
     return url.rstrip("/"), headers
 
@@ -335,19 +332,17 @@ def connect(url: str | None) -> None:
 
     url = url.rstrip("/")
 
-    shared_secret = click.prompt("Shared secret", type=str, hide_input=True)
+    password = click.prompt("Password", type=str, hide_input=True)
 
-    # Verify the connection works.
+    # Authenticate and get an API token.
     try:
-        resp = httpx.get(
-            f"{url}/api/studies",
-            headers={"X-Shared-Secret": shared_secret},
+        resp = httpx.post(
+            f"{url}/api/auth",
+            json={"password": password},
             timeout=10,
         )
         if resp.status_code == 401:
-            raise click.ClickException(
-                "Authentication failed — check your shared secret."
-            )
+            raise click.ClickException("Invalid password.")
         if resp.status_code >= 400:
             raise click.ClickException(
                 f"Server error {resp.status_code}: {resp.text[:200]}"
@@ -357,7 +352,8 @@ def connect(url: str | None) -> None:
     except httpx.TimeoutException:
         raise click.ClickException(f"Connection timed out: {url}")
 
-    path = save_credentials(url, shared_secret)
+    token = resp.json()["token"]
+    path = save_credentials(url, token)
     click.echo()
     click.echo(click.style("Connected!", fg="green", bold=True) + f"  {url}")
     click.echo(click.style(f"  Credentials saved to {path}", dim=True))
