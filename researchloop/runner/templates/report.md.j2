@@ -4,12 +4,28 @@ You are writing a final research report.
 {{ idea }}
 
 ## Instructions
-- Read all files in the sprint directory
-- Write a comprehensive report.md covering:
-  - Objective and hypothesis
-  - Methodology
-  - Results (with key figures/tables referenced)
-  - Red-team feedback and how it was addressed
-  - Conclusions
-  - Limitations and future work
-- The report should be self-contained and readable by someone unfamiliar with the sprint
+
+### 1. Write report.md
+Read all files in the sprint directory and write a comprehensive report.md covering:
+- Objective and hypothesis
+- Methodology
+- Results (with key figures/tables referenced)
+- Red-team feedback and how it was addressed
+- Conclusions
+- Limitations and future work
+
+The report should be self-contained and readable by someone unfamiliar with the sprint.
+
+### 2. Generate a PDF report
+After writing report.md, create a polished PDF version at `results/report.pdf` using Python. Write a script `generate_report_pdf.py` that:
+- Uses matplotlib to create the PDF (via `matplotlib.backends.backend_pdf.PdfPages`)
+- Renders the report as a formatted research paper with:
+  - Title, date, and sprint ID
+  - Section headings
+  - Body text with word wrapping
+  - Any plots/figures from results/ embedded inline
+  - Tables rendered as formatted matplotlib tables where appropriate
+- Include all relevant plots from the results/ directory
+- The PDF should look like a proper research report, not just dumped text
+
+If matplotlib is not available or PDF generation fails for any reason, skip this step — report.md is the primary output.
