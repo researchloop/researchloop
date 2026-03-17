@@ -208,7 +208,14 @@ class SprintManager:
         study_context = "\n\n".join(context_parts) if has_context else ""
         idea = sprint["idea"]
         red_team_rounds = study_cfg.red_team_max_rounds if study_cfg else 3
-        sprint_remote_dir = f"{cluster_cfg.working_dir}/{sprint_dirname}"
+
+        # Resolve the base directory for sprints.
+        # Priority: study.sprints_dir > working_dir/<study_name>
+        if study_cfg and study_cfg.sprints_dir:
+            sprints_base = study_cfg.sprints_dir
+        else:
+            sprints_base = f"{cluster_cfg.working_dir}/{study_name}"
+        sprint_remote_dir = f"{sprints_base}/{sprint_dirname}"
 
         # Pre-render all pipeline prompt templates.
         def _render_prompt(name: str, **kw: object) -> str:
@@ -281,7 +288,7 @@ class SprintManager:
             idea=idea,
             sprint_dirname=sprint_dirname,
             job_name=f"rl-{sprint_id}",
-            working_dir=cluster_cfg.working_dir,
+            working_dir=sprints_base,
             time_limit=(
                 f"{study_cfg.max_sprint_duration_hours}:00:00"
                 if study_cfg
