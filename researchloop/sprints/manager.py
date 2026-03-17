@@ -108,7 +108,11 @@ class SprintManager:
     # Submit
     # ------------------------------------------------------------------
 
-    async def submit_sprint(self, sprint_id: str) -> str:
+    async def submit_sprint(
+        self,
+        sprint_id: str,
+        extra_job_options: dict[str, str] | None = None,
+    ) -> str:
         """Submit a pending sprint to its cluster scheduler.
 
         Returns the scheduler-assigned job ID.
@@ -208,6 +212,11 @@ class SprintManager:
             if study_cfg
             else "8:00:00",
             environment=cluster_cfg.environment,
+            job_options={
+                **cluster_cfg.job_options,
+                **(study_cfg.job_options if study_cfg else {}),
+                **(extra_job_options or {}),
+            },
             claude_command=(
                 (study_cfg.claude_command if study_cfg else "")
                 or cluster_cfg.claude_command
@@ -292,13 +301,18 @@ class SprintManager:
     # Combined create + submit
     # ------------------------------------------------------------------
 
-    async def run_sprint(self, study_name: str, idea: str) -> Sprint:
+    async def run_sprint(
+        self,
+        study_name: str,
+        idea: str,
+        job_options: dict[str, str] | None = None,
+    ) -> Sprint:
         """Create a sprint and immediately submit it.
 
         Returns the :class:`Sprint` with updated status and job ID.
         """
         sprint = await self.create_sprint(study_name, idea)
-        job_id = await self.submit_sprint(sprint.id)
+        job_id = await self.submit_sprint(sprint.id, extra_job_options=job_options)
         sprint.status = SprintStatus.SUBMITTED
         sprint.job_id = job_id
         return sprint

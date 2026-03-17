@@ -3,15 +3,9 @@
 #SBATCH --output={{ working_dir }}/{{ sprint_dirname }}/.researchloop/slurm-%j.out
 #SBATCH --error={{ working_dir }}/{{ sprint_dirname }}/.researchloop/slurm-%j.err
 #SBATCH --time={{ time_limit }}
-{% if partition is defined and partition %}
-#SBATCH --partition={{ partition }}
-{% endif %}
-{% if gpus is defined and gpus %}
-#SBATCH --gpus={{ gpus }}
-{% endif %}
-{% if mem is defined and mem %}
-#SBATCH --mem={{ mem }}
-{% endif %}
+{% for key, value in job_options.items() %}
+#SBATCH --{{ key }}={{ value }}
+{% endfor %}
 
 set -euo pipefail
 

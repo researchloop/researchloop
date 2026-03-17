@@ -5,6 +5,9 @@
 #$ -l h_rt={{ time_limit }}
 #$ -cwd
 #$ -S /bin/bash
+{% for key, value in job_options.items() %}
+#$ {{ key }} {{ value }}
+{% endfor %}
 
 set -euo pipefail
 

@@ -37,6 +37,7 @@ class ClusterConfig:
     working_dir: str = ""
     max_concurrent_jobs: int = 4
     environment: dict[str, str] = field(default_factory=dict)
+    job_options: dict[str, str] = field(default_factory=dict)
     claude_command: str = "claude --dangerously-skip-permissions"
     context: str = ""
     context_paths: list[str] = field(default_factory=list)
@@ -52,6 +53,7 @@ class StudyConfig:
     context: str = ""
     sprints_dir: str = ""
     claude_command: str = ""
+    job_options: dict[str, str] = field(default_factory=dict)
     max_sprint_duration_hours: int = 8
     red_team_max_rounds: int = 3
     description: str = ""
@@ -117,6 +119,7 @@ def _parse_cluster(data: dict) -> ClusterConfig:
         working_dir=data.get("working_dir", ""),
         max_concurrent_jobs=data.get("max_concurrent_jobs", 4),
         environment=data.get("environment", {}),
+        job_options=data.get("job_options", {}),
         claude_command=data.get(
             "claude_command",
             "claude --dangerously-skip-permissions",
@@ -136,6 +139,7 @@ def _parse_study(data: dict) -> StudyConfig:
         max_sprint_duration_hours=data.get("max_sprint_duration_hours", 8),
         red_team_max_rounds=data.get("red_team_max_rounds", 3),
         claude_command=data.get("claude_command", ""),
+        job_options=data.get("job_options", {}),
         description=data.get("description", ""),
         allow_loop=data.get("allow_loop", True),
     )

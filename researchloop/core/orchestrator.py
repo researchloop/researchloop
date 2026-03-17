@@ -504,7 +504,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                 status_code=400,
                 detail="study_name and idea are required",
             )
-        sprint = await orchestrator.sprint_manager.run_sprint(study_name, idea)
+        job_options = body.get("job_options", {})
+        sprint = await orchestrator.sprint_manager.run_sprint(
+            study_name, idea, job_options=job_options
+        )
         return JSONResponse(
             {
                 "sprint_id": sprint.id,
