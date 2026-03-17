@@ -325,10 +325,19 @@ def connect(url: str | None) -> None:
 
     Saves the URL and shared secret to ~/.config/researchloop/credentials.json.
     """
-    from researchloop.core.credentials import save_credentials
+    from researchloop.core.credentials import (
+        load_credentials,
+        save_credentials,
+    )
 
     if not url:
-        url = click.prompt("Orchestrator URL", type=str)
+        creds = load_credentials()
+        default_url = creds["url"] if creds else None
+        url = click.prompt(
+            "Orchestrator URL",
+            type=str,
+            default=default_url,
+        )
 
     url = url.rstrip("/")
 
