@@ -43,6 +43,14 @@ _jinja_env = jinja2.Environment(
     undefined=jinja2.StrictUndefined,
 )
 
+# Prompt templates for the research pipeline steps.
+_PROMPT_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "runner" / "templates"
+_prompt_env = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(str(_PROMPT_TEMPLATES_DIR)),
+    keep_trailing_newline=True,
+    undefined=jinja2.StrictUndefined,
+)
+
 
 class SprintManager:
     """Manages the full lifecycle of research sprints.
@@ -197,20 +205,88 @@ class SprintManager:
                 logger.info("Loaded study context file: %s", p)
 
         has_context = bool(context_parts)
+        study_context = "\n\n".join(context_parts) if has_context else ""
+        idea = sprint["idea"]
+        red_team_rounds = study_cfg.red_team_max_rounds if study_cfg else 3
+        sprint_remote_dir = f"{cluster_cfg.working_dir}/{sprint_dirname}"
 
-        # Render the job script for the appropriate scheduler.
+        # Pre-render all pipeline prompt templates.
+        def _render_prompt(name: str, **kw: object) -> str:
+            return _prompt_env.get_template(name).render(**kw)
+
+        prompts: list[dict[str, str]] = []
+
+        # Research prompt
+        prompts.append(
+            {
+                "filename": "prompt_research.md",
+                "content_b64": _b64encode(
+                    _render_prompt(
+                        "research_sprint.md.j2",
+                        study_context=study_context,
+                        idea=idea,
+                        sprint_dir=sprint_remote_dir,
+                    )
+                ),
+            }
+        )
+
+        # Red-team + fix prompts (one pair per round)
+        for r in range(1, red_team_rounds + 1):
+            prompts.append(
+                {
+                    "filename": f"prompt_red_team_{r}.md",
+                    "content_b64": _b64encode(
+                        _render_prompt(
+                            "red_team.md.j2",
+                            idea=idea,
+                            round_number=r,
+                            max_rounds=red_team_rounds,
+                        )
+                    ),
+                }
+            )
+            prompts.append(
+                {
+                    "filename": f"prompt_fix_{r}.md",
+                    "content_b64": _b64encode(
+                        _render_prompt(
+                            "fix_issues.md.j2",
+                            round_number=r,
+                        )
+                    ),
+                }
+            )
+
+        # Report + summarize prompts
+        prompts.append(
+            {
+                "filename": "prompt_report.md",
+                "content_b64": _b64encode(_render_prompt("report.md.j2", idea=idea)),
+            }
+        )
+        prompts.append(
+            {
+                "filename": "prompt_summarize.md",
+                "content_b64": _b64encode(_render_prompt("summarizer.md.j2")),
+            }
+        )
+
+        # Render the job script.
         template_name = f"{cluster_cfg.scheduler_type}.sh.j2"
         template = _jinja_env.get_template(template_name)
         job_script = template.render(
             sprint_id=sprint_id,
             study_name=study_name,
-            idea=sprint["idea"],
+            idea=idea,
             sprint_dirname=sprint_dirname,
             job_name=f"rl-{sprint_id}",
             working_dir=cluster_cfg.working_dir,
-            time_limit=f"{study_cfg.max_sprint_duration_hours}:00:00"
-            if study_cfg
-            else "8:00:00",
+            time_limit=(
+                f"{study_cfg.max_sprint_duration_hours}:00:00"
+                if study_cfg
+                else "8:00:00"
+            ),
             environment=cluster_cfg.environment,
             job_options={
                 **cluster_cfg.job_options,
@@ -225,10 +301,8 @@ class SprintManager:
             ),
             orchestrator_url=self.config.orchestrator_url or "",
             shared_secret=self.config.shared_secret or "",
-            claude_md_path=f"{cluster_cfg.working_dir}/{sprint_dirname}/CLAUDE.md"
-            if has_context
-            else "",
-            red_team_max_rounds=study_cfg.red_team_max_rounds if study_cfg else 3,
+            red_team_max_rounds=red_team_rounds,
+            prompts=prompts,
         )
 
         # SSH to cluster: create sprint directory and write job script.
@@ -245,19 +319,20 @@ class SprintManager:
             f"mkdir -p {sprint_remote_dir}/.researchloop {sprint_remote_dir}/results"
         )
 
-        # Upload merged CLAUDE.md to the sprint directory.
+        # Upload CLAUDE.md so Claude CLI picks it up automatically.
         if has_context:
-            merged = "\n\n".join(context_parts)
-            remote_claude_md = f"{sprint_remote_dir}/CLAUDE.md"
-            encoded = _b64encode(merged)
-            await ssh.run(f"echo '{encoded}' | base64 -d > {remote_claude_md}")
+            encoded_ctx = _b64encode(study_context)
+            await ssh.run(
+                f"echo '{encoded_ctx}' | base64 -d > {sprint_remote_dir}/CLAUDE.md"
+            )
             logger.info(
-                "Uploaded merged CLAUDE.md (%d parts) to %s",
+                "Uploaded CLAUDE.md (%d parts) to %s",
                 len(context_parts),
-                remote_claude_md,
+                sprint_remote_dir,
             )
 
-        # Write the job script via base64 to avoid heredoc issues.
+        # Write the job script via base64.
+        # Prompts are embedded in the script as base64.
         script_path = f"{sprint_remote_dir}/run_sprint.sh"
         encoded_script = _b64encode(job_script)
         await ssh.run(f"echo '{encoded_script}' | base64 -d > {script_path}")

@@ -16,35 +16,125 @@ set -euo pipefail
 export {{ key }}="{{ value }}"
 {% endfor %}
 
-export RESEARCHLOOP_SPRINT_ID="{{ sprint_id }}"
-export RESEARCHLOOP_STUDY_NAME="{{ study_name }}"
-
+SPRINT_ID="{{ sprint_id }}"
+STUDY_NAME="{{ study_name }}"
 SPRINT_DIR="{{ working_dir }}/{{ sprint_dirname }}"
+ORCHESTRATOR_URL="{{ orchestrator_url }}"
+SHARED_SECRET="{{ shared_secret }}"
+CLAUDE_CMD="{{ claude_command }}"
+RED_TEAM_ROUNDS={{ red_team_max_rounds }}
+
 cd "$SPRINT_DIR"
 mkdir -p .researchloop results
 
-echo "=== ResearchLoop Sprint {{ sprint_id }} (SGE) ==="
-echo "Study: {{ study_name }}"
-echo "Idea: {{ idea }}"
+echo "=== ResearchLoop Sprint $SPRINT_ID (SGE) ==="
+echo "Study: $STUDY_NAME"
 echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# --- Ensure researchloop-runner is installed ---
-if ! command -v researchloop-runner &> /dev/null; then
-    echo "Installing researchloop-runner..."
-    pip install --user "researchloop @ git+https://github.com/chanind/researchloop.git" 2>&1
-    export PATH="$HOME/.local/bin:$PATH"
+# --- Helper: run claude and extract session ID ---
+SESSION_ID=""
+run_step() {
+    local prompt_file="$1"
+    local step_name="$2"
+    echo ">>> Step: $step_name"
+
+    local cmd=($CLAUDE_CMD -p "$(cat "$prompt_file")" --output-format json)
+    if [ -n "$SESSION_ID" ]; then
+        cmd+=(--resume "$SESSION_ID")
+    fi
+
+    local output
+    output=$("${cmd[@]}" 2>&1) || {
+        echo "ERROR: Claude failed on step $step_name (exit $?)"
+        echo "$output" | tail -20
+        return 1
+    }
+
+    local new_sid
+    new_sid=$(echo "$output" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('session_id', ''))
+except:
+    pass
+" 2>/dev/null || true)
+    if [ -n "$new_sid" ]; then
+        SESSION_ID="$new_sid"
+    fi
+
+    echo "<<< Step $step_name complete"
+}
+
+# --- Helper: send webhook via curl ---
+send_webhook() {
+    local status="$1"
+    local summary="${2:-}"
+    local error="${3:-}"
+    if [ -z "$ORCHESTRATOR_URL" ]; then return; fi
+    curl -s -X POST "$ORCHESTRATOR_URL/api/webhook/sprint-complete" \
+        -H "Content-Type: application/json" \
+        -H "X-Shared-Secret: $SHARED_SECRET" \
+        -d "{\"sprint_id\":\"$SPRINT_ID\",\"status\":\"$status\",\"summary\":$(python3 -c "import json; print(json.dumps('$summary'))" 2>/dev/null || echo '""'),\"error\":$(python3 -c "import json; print(json.dumps('$error'))" 2>/dev/null || echo 'null')}" \
+        > /dev/null 2>&1 || true
+}
+
+# --- Write prompt files (pre-rendered by orchestrator) ---
+{% for prompt in prompts %}
+echo '{{ prompt.content_b64 }}' | base64 -d > "$SPRINT_DIR/.researchloop/{{ prompt.filename }}"
+{% endfor %}
+
+# --- Pipeline ---
+FINAL_STATUS="completed"
+ERROR_MSG=""
+
+if ! run_step "$SPRINT_DIR/.researchloop/prompt_research.md" "research"; then
+    FINAL_STATUS="failed"
+    ERROR_MSG="Research step failed"
 fi
 
-researchloop-runner run \
-    --sprint-id "{{ sprint_id }}" \
-    --sprint-dir "$SPRINT_DIR" \
-    --claude-md "{{ claude_md_path }}" \
-    --idea "{{ idea }}" \
-    --orchestrator-url "{{ orchestrator_url }}" \
-    --shared-secret "{{ shared_secret }}" \
-    --red-team-rounds {{ red_team_max_rounds }} \
-    --claude-command "{{ claude_command }}"
+if [ "$FINAL_STATUS" = "completed" ]; then
+    for round in $(seq 1 $RED_TEAM_ROUNDS); do
+        echo ">>> Red-team round $round/$RED_TEAM_ROUNDS"
+        if ! run_step "$SPRINT_DIR/.researchloop/prompt_red_team_${round}.md" "red_team_round_$round"; then
+            FINAL_STATUS="failed"
+            ERROR_MSG="Red-team round $round failed"
+            break
+        fi
+        if [ -f "$SPRINT_DIR/red_team_round_${round}.md" ]; then
+            if grep -q "NO CRITICAL ISSUES" "$SPRINT_DIR/red_team_round_${round}.md"; then
+                echo "No critical issues found, stopping red-team loop."
+                break
+            fi
+        fi
+        if ! run_step "$SPRINT_DIR/.researchloop/prompt_fix_${round}.md" "fix_round_$round"; then
+            FINAL_STATUS="failed"
+            ERROR_MSG="Fix round $round failed"
+            break
+        fi
+    done
+fi
 
-EXIT_CODE=$?
-echo "Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-exit $EXIT_CODE
+if [ "$FINAL_STATUS" = "completed" ]; then
+    if ! run_step "$SPRINT_DIR/.researchloop/prompt_report.md" "report"; then
+        FINAL_STATUS="failed"
+        ERROR_MSG="Report step failed"
+    fi
+fi
+
+if [ "$FINAL_STATUS" = "completed" ]; then
+    if ! run_step "$SPRINT_DIR/.researchloop/prompt_summarize.md" "summarize"; then
+        FINAL_STATUS="failed"
+        ERROR_MSG="Summarize step failed"
+    fi
+fi
+
+SUMMARY=""
+if [ -f "$SPRINT_DIR/summary.txt" ]; then
+    SUMMARY=$(cat "$SPRINT_DIR/summary.txt")
+fi
+
+send_webhook "$FINAL_STATUS" "$SUMMARY" "$ERROR_MSG"
+
+echo "Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ) (status: $FINAL_STATUS)"
+[ "$FINAL_STATUS" = "completed" ] && exit 0 || exit 1

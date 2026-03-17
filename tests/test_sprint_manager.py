@@ -180,19 +180,33 @@ def _make_config(
     )
 
 
-def _extract_claude_md(ssh_mock: AsyncMock) -> str | None:
-    """Pull the CLAUDE.md content from mocked ssh.run() calls."""
+def _extract_context(ssh_mock: AsyncMock) -> str | None:
+    """Extract the study context from the embedded research prompt.
+
+    The script is written via base64. Inside it, prompt files are
+    also written via base64. We decode the script, find the
+    research prompt's base64, and decode that.
+    """
     import base64
 
     for call in ssh_mock.run.call_args_list:
         cmd = call.args[0] if call.args else ""
-        if "CLAUDE.md" in cmd and "base64 -d" in cmd:
-            # Format: echo '<b64>' | base64 -d > path/CLAUDE.md
-            # Extract the base64 string between quotes.
+        if "run_sprint.sh" in cmd and "base64 -d" in cmd:
+            # Decode the job script.
             start = cmd.index("'") + 1
             end = cmd.index("'", start)
-            encoded = cmd[start:end]
-            return base64.b64decode(encoded).decode("utf-8")
+            script = base64.b64decode(cmd[start:end]).decode("utf-8")
+
+            # Find the research prompt base64 line.
+            for line in script.split("\n"):
+                if "prompt_research.md" in line:
+                    # Line: echo '<b64>' | base64 -d > ...
+                    b_start = line.index("'") + 1
+                    b_end = line.index("'", b_start)
+                    prompt = base64.b64decode(line[b_start:b_end]).decode("utf-8")
+                    # The context is in the "Study Context"
+                    # section of the prompt.
+                    return prompt
     return None
 
 
@@ -217,7 +231,7 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert "Cluster info here" in content
 
@@ -239,7 +253,7 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert "Study about SAEs" in content
 
@@ -265,7 +279,7 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert "Cluster: 4x A100" in content
         assert "Study: transformers" in content
@@ -296,7 +310,7 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert "From cluster file" in content
 
@@ -324,7 +338,7 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert "Study file content" in content
 
@@ -358,14 +372,14 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert content.index("1-cluster-inline") < content.index("2-cluster-file")
         assert content.index("2-cluster-file") < content.index("3-study-inline")
         assert content.index("3-study-inline") < content.index("4-study-file")
 
-    async def test_no_context_no_upload(self, db_with_study, tmp_path):
-        """No context → no CLAUDE.md uploaded."""
+    async def test_no_context_empty_study_context(self, db_with_study, tmp_path):
+        """No context → prompt has empty study context section."""
         config = _make_config(tmp_path)
         ssh_mock = AsyncMock()
         ssh_mgr = AsyncMock()
@@ -383,8 +397,10 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
-        assert content is None
+        content = _extract_context(ssh_mock)
+        assert content is not None
+        # Study context section should be empty.
+        assert "## Study Context\n\n\n" in content
 
     async def test_missing_file_skipped(self, db_with_study, tmp_path):
         """Non-existent context files are silently skipped."""
@@ -409,7 +425,7 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert "present" in content
         assert "nope" not in content
@@ -437,7 +453,7 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert content.index("0-global") < content.index("1-cluster")
         assert content.index("1-cluster") < content.index("2-study")
@@ -467,7 +483,7 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert "Global file content" in content
         assert content.index("Global file") < content.index("study stuff")
@@ -491,6 +507,6 @@ class TestContextMerging:
         sprint = await mgr.create_sprint("test-study", "idea")
         await mgr.submit_sprint(sprint.id)
 
-        content = _extract_claude_md(ssh_mock)
+        content = _extract_context(ssh_mock)
         assert content is not None
         assert "SAELens docs at ..." in content
