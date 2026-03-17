@@ -25,6 +25,13 @@ echo "Study: {{ study_name }}"
 echo "Idea: {{ idea }}"
 echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# --- Ensure researchloop-runner is installed ---
+if ! command -v researchloop-runner &> /dev/null; then
+    echo "Installing researchloop-runner..."
+    pip install --user "researchloop @ git+https://github.com/chanind/researchloop.git" 2>&1
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
 researchloop-runner run \
     --sprint-id "{{ sprint_id }}" \
     --sprint-dir "$SPRINT_DIR" \
