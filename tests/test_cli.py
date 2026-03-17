@@ -40,14 +40,24 @@ class TestVersion:
 class TestStudyCommands:
     def test_study_list(self, toml_config_file):
         runner = CliRunner()
-        result = runner.invoke(cli, ["-c", str(toml_config_file), "study", "list"])
+        result = runner.invoke(
+            cli,
+            ["-c", str(toml_config_file), "study", "list"],
+        )
         assert result.exit_code == 0
         assert "my-study" in result.output
 
     def test_study_show(self, toml_config_file):
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["-c", str(toml_config_file), "study", "show", "my-study"]
+            cli,
+            [
+                "-c",
+                str(toml_config_file),
+                "study",
+                "show",
+                "my-study",
+            ],
         )
         assert result.exit_code == 0
         assert "my-study" in result.output
@@ -55,7 +65,14 @@ class TestStudyCommands:
     def test_study_show_not_found(self, toml_config_file):
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["-c", str(toml_config_file), "study", "show", "nope"]
+            cli,
+            [
+                "-c",
+                str(toml_config_file),
+                "study",
+                "show",
+                "nope",
+            ],
         )
         assert result.exit_code != 0
 
@@ -91,7 +108,10 @@ class TestSprintCommands:
 
     def test_sprint_list(self, toml_config_file):
         runner = CliRunner()
-        result = runner.invoke(cli, ["-c", str(toml_config_file), "sprint", "list"])
+        result = runner.invoke(
+            cli,
+            ["-c", str(toml_config_file), "sprint", "list"],
+        )
         assert result.exit_code == 0
 
     @patch("httpx.post")
@@ -101,16 +121,28 @@ class TestSprintCommands:
             status_code=201,
         )
         runner = CliRunner()
-        # Create a sprint first
         runner.invoke(
             cli,
-            ["-c", str(toml_config_file), "sprint", "run", "idea", "-s", "my-study"],
+            [
+                "-c",
+                str(toml_config_file),
+                "sprint",
+                "run",
+                "idea",
+                "-s",
+                "my-study",
+            ],
         )
-        # Show it (sprint show still uses local DB)
         result = runner.invoke(
-            cli, ["-c", str(toml_config_file), "sprint", "show", "sp-abc123"]
+            cli,
+            [
+                "-c",
+                str(toml_config_file),
+                "sprint",
+                "show",
+                "sp-abc123",
+            ],
         )
-        # It may not find it in local DB, that's OK — we're testing the CLI wiring
         assert result.exit_code in (0, 1)
 
     @patch("httpx.post")
@@ -118,7 +150,14 @@ class TestSprintCommands:
         mock_post.return_value = _mock_response({"cancelled": True})
         runner = CliRunner()
         result = runner.invoke(
-            cli, ["-c", str(toml_config_file), "sprint", "cancel", "sp-abc123"]
+            cli,
+            [
+                "-c",
+                str(toml_config_file),
+                "sprint",
+                "cancel",
+                "sp-abc123",
+            ],
         )
         assert result.exit_code == 0
         assert "Cancelled" in result.output
@@ -133,7 +172,15 @@ class TestSprintCommands:
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["-c", str(toml_config_file), "sprint", "run", "idea", "-s", "nope"],
+            [
+                "-c",
+                str(toml_config_file),
+                "sprint",
+                "run",
+                "idea",
+                "-s",
+                "nope",
+            ],
         )
         assert result.exit_code != 0
         assert "400" in result.output or "not found" in result.output.lower()
@@ -142,7 +189,10 @@ class TestSprintCommands:
 class TestClusterCommands:
     def test_cluster_list(self, toml_config_file):
         runner = CliRunner()
-        result = runner.invoke(cli, ["-c", str(toml_config_file), "cluster", "list"])
+        result = runner.invoke(
+            cli,
+            ["-c", str(toml_config_file), "cluster", "list"],
+        )
         assert result.exit_code == 0
         assert "local" in result.output
 
@@ -157,12 +207,151 @@ class TestLoopCommands:
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["-c", str(toml_config_file), "loop", "start", "-s", "my-study", "-n", "3"],
+            [
+                "-c",
+                str(toml_config_file),
+                "loop",
+                "start",
+                "-s",
+                "my-study",
+                "-n",
+                "3",
+            ],
         )
         assert result.exit_code == 0
         assert "loop-abc123" in result.output
 
     def test_loop_status(self, toml_config_file):
         runner = CliRunner()
-        result = runner.invoke(cli, ["-c", str(toml_config_file), "loop", "status"])
+        result = runner.invoke(
+            cli,
+            ["-c", str(toml_config_file), "loop", "status"],
+        )
         assert result.exit_code == 0
+
+
+_FAKE_CREDS = {
+    "url": "http://localhost:9999",
+    "token": "old-expired-token",
+}
+
+
+class TestAutoReauth:
+    """Auto-reauth on 401 with saved credentials."""
+
+    @patch("researchloop.core.credentials.load_credentials")
+    @patch("researchloop.core.credentials.save_credentials")
+    @patch("httpx.post")
+    def test_reauth_on_401_then_retry_succeeds(self, mock_post, mock_save, mock_load):
+        """401 -> prompt password -> new token -> retry ok."""
+        mock_load.return_value = _FAKE_CREDS
+
+        resp_401 = _mock_response({"detail": "Unauthorized"}, status_code=401)
+        resp_401.text = "Unauthorized"
+        resp_auth = _mock_response({"token": "new-token"}, status_code=200)
+        resp_ok = _mock_response(
+            {
+                "sprint_id": "sp-retry1",
+                "study_name": "my-study",
+                "status": "submitted",
+                "job_id": "456",
+            },
+            status_code=201,
+        )
+        mock_post.side_effect = [
+            resp_401,
+            resp_auth,
+            resp_ok,
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["sprint", "run", "idea", "-s", "my-study"],
+            input="mypassword\n",
+        )
+        assert result.exit_code == 0
+        assert "sp-retry1" in result.output
+        assert "Re-authenticated" in result.output
+        # 3 calls: original, auth, retry
+        assert mock_post.call_count == 3
+        # Token was saved
+        mock_save.assert_called_once_with("http://localhost:9999", "new-token")
+
+    @patch("researchloop.core.credentials.load_credentials")
+    @patch("httpx.post")
+    def test_reauth_wrong_password_fails(self, mock_post, mock_load):
+        """401 -> prompt password -> wrong password -> error."""
+        mock_load.return_value = _FAKE_CREDS
+
+        resp_401 = _mock_response({"detail": "Unauthorized"}, status_code=401)
+        resp_401.text = "Unauthorized"
+        resp_auth_fail = _mock_response({"detail": "Invalid password"}, status_code=401)
+        resp_auth_fail.text = "Invalid password"
+        mock_post.side_effect = [resp_401, resp_auth_fail]
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["sprint", "run", "idea", "-s", "my-study"],
+            input="wrongpassword\n",
+        )
+        assert result.exit_code != 0
+        assert "Invalid password" in result.output
+
+    @patch("httpx.post")
+    def test_no_reauth_with_shared_secret(self, mock_post, toml_config_file):
+        """401 with shared_secret auth should NOT prompt."""
+        resp_401 = _mock_response({"detail": "Invalid"}, status_code=401)
+        resp_401.text = '{"detail":"Invalid"}'
+        mock_post.return_value = resp_401
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "-c",
+                str(toml_config_file),
+                "sprint",
+                "run",
+                "idea",
+                "-s",
+                "my-study",
+            ],
+        )
+        assert result.exit_code != 0
+        # Only 1 call — no reauth since we used shared_secret
+        assert mock_post.call_count == 1
+        # Should not contain password prompt
+        assert "Re-authenticated" not in result.output
+
+    @patch("researchloop.core.credentials.load_credentials")
+    @patch("researchloop.core.credentials.save_credentials")
+    @patch("httpx.post")
+    def test_reauth_only_retries_once(self, mock_post, mock_save, mock_load):
+        """After reauth, if retry also 401s, don't loop."""
+        mock_load.return_value = _FAKE_CREDS
+
+        resp_401 = _mock_response({"detail": "Unauthorized"}, status_code=401)
+        resp_401.text = "Unauthorized"
+        resp_auth = _mock_response({"token": "new-token"}, status_code=200)
+        resp_401_again = _mock_response(
+            {"detail": "Still unauthorized"},
+            status_code=401,
+        )
+        resp_401_again.text = "Still unauthorized"
+        mock_post.side_effect = [
+            resp_401,
+            resp_auth,
+            resp_401_again,
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["sprint", "run", "idea", "-s", "my-study"],
+            input="mypassword\n",
+        )
+        assert result.exit_code != 0
+        # 3 calls total — no infinite loop
+        assert mock_post.call_count == 3
