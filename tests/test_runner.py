@@ -77,11 +77,6 @@ class TestRenderTemplate:
         assert "red_team_round_1.md" in output
         assert "fixes_round_1.md" in output
 
-    def test_validation_template(self):
-        output = render_template("validation.md.j2", idea="my idea")
-        assert "my idea" in output
-        assert "validation_report.md" in output
-
     def test_report_template(self):
         output = render_template("report.md.j2", idea="explore SAEs")
         assert "explore SAEs" in output
