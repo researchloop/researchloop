@@ -182,22 +182,17 @@ def _make_config(
 
 def _extract_claude_md(ssh_mock: AsyncMock) -> str | None:
     """Pull the CLAUDE.md content from mocked ssh.run() calls."""
+    import base64
+
     for call in ssh_mock.run.call_args_list:
         cmd = call.args[0] if call.args else ""
-        if "CLAUDE.md" in cmd and "cat >" in cmd:
-            # Content is between the heredoc markers.
-            lines = cmd.split("\n")
-            content_lines = []
-            in_body = False
-            for line in lines:
-                if line.startswith("cat >"):
-                    in_body = True
-                    continue
-                if line.strip() == "RESEARCHLOOP_EOF":
-                    break
-                if in_body:
-                    content_lines.append(line)
-            return "\n".join(content_lines)
+        if "CLAUDE.md" in cmd and "base64 -d" in cmd:
+            # Format: echo '<b64>' | base64 -d > path/CLAUDE.md
+            # Extract the base64 string between quotes.
+            start = cmd.index("'") + 1
+            end = cmd.index("'", start)
+            encoded = cmd[start:end]
+            return base64.b64decode(encoded).decode("utf-8")
     return None
 
 

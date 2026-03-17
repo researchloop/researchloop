@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from datetime import datetime, timezone
@@ -27,6 +28,12 @@ from researchloop.db import queries
 from researchloop.studies.manager import StudyManager
 
 logger = logging.getLogger(__name__)
+
+
+def _b64encode(text: str) -> str:
+    """Base64-encode a string for safe SSH transfer."""
+    return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
 
 # Jinja2 environment pointing at the runner/job_templates directory.
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "runner" / "job_templates"
@@ -225,22 +232,18 @@ class SprintManager:
         if has_context:
             merged = "\n\n".join(context_parts)
             remote_claude_md = f"{sprint_remote_dir}/CLAUDE.md"
-            await ssh.run(
-                f"cat > {remote_claude_md} "
-                f"<< 'RESEARCHLOOP_EOF'\n{merged}\n"
-                f"RESEARCHLOOP_EOF"
-            )
+            encoded = _b64encode(merged)
+            await ssh.run(f"echo '{encoded}' | base64 -d > {remote_claude_md}")
             logger.info(
                 "Uploaded merged CLAUDE.md (%d parts) to %s",
                 len(context_parts),
                 remote_claude_md,
             )
 
-        # Write the job script to a temporary approach via stdin.
+        # Write the job script via base64 to avoid heredoc issues.
         script_path = f"{sprint_remote_dir}/run_sprint.sh"
-        await ssh.run(
-            f"cat > {script_path} << 'RESEARCHLOOP_EOF'\n{job_script}\nRESEARCHLOOP_EOF"
-        )
+        encoded_script = _b64encode(job_script)
+        await ssh.run(f"echo '{encoded_script}' | base64 -d > {script_path}")
         await ssh.run(f"chmod +x {script_path}")
 
         # Submit via the scheduler.
