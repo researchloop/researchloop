@@ -133,6 +133,29 @@ def _resolve_connection(
     return url.rstrip("/"), headers
 
 
+def _reauth(url: str) -> dict[str, str]:
+    """Prompt for password, get a new token, save it, return headers."""
+    from researchloop.core.credentials import save_credentials
+
+    click.echo("Session expired. Please re-authenticate.")
+    password = click.prompt("Password", type=str, hide_input=True)
+
+    resp = httpx.post(
+        f"{url}/api/auth",
+        json={"password": password},
+        timeout=10,
+    )
+    if resp.status_code == 401:
+        raise click.ClickException("Invalid password.")
+    if resp.status_code >= 400:
+        raise click.ClickException(f"Auth error {resp.status_code}: {resp.text[:200]}")
+
+    token = resp.json()["token"]
+    save_credentials(url, token)
+    click.echo(click.style("Re-authenticated!", fg="green"))
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _api_post(
     config: Any | None,
     path: str,
@@ -148,6 +171,14 @@ def _api_post(
             headers=headers,
             timeout=30,
         )
+        if resp.status_code == 401 and "Authorization" in headers:
+            headers = _reauth(url)
+            resp = httpx.post(
+                full_url,
+                json=body or {},
+                headers=headers,
+                timeout=30,
+            )
         if resp.status_code >= 400:
             detail = resp.text[:200]
             raise click.ClickException(f"API error {resp.status_code}: {detail}")
@@ -164,6 +195,9 @@ def _api_get(config: Any | None, path: str) -> dict:
     full_url = f"{url}{path}"
     try:
         resp = httpx.get(full_url, headers=headers, timeout=30)
+        if resp.status_code == 401 and "Authorization" in headers:
+            headers = _reauth(url)
+            resp = httpx.get(full_url, headers=headers, timeout=30)
         if resp.status_code >= 400:
             detail = resp.text[:200]
             raise click.ClickException(f"API error {resp.status_code}: {detail}")
