@@ -36,7 +36,7 @@ def add_dashboard_routes(
 ) -> None:
     """Register all dashboard HTML routes on *app*."""
 
-    session_mgr = SessionManager()
+    session_mgr = SessionManager(secret_key=orchestrator.config.shared_secret or None)
 
     # ----------------------------------------------------------
     # Password resolution — config, env, or DB
