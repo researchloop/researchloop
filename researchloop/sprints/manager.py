@@ -146,8 +146,24 @@ class SprintManager:
                 f"or type {cluster_cfg.scheduler_type!r}"
             )
 
-        # Render the job script for the appropriate scheduler.
         sprint_dirname = sprint.get("directory", sprint_id)
+
+        # Collect context files (cluster-level + study-level).
+        context_parts: list[str] = []
+        for ctx_path in cluster_cfg.context_paths:
+            p = Path(ctx_path)
+            if p.exists():
+                context_parts.append(p.read_text(encoding="utf-8"))
+                logger.info("Loaded cluster context: %s", p)
+        if study_cfg and study_cfg.claude_md_path:
+            p = Path(study_cfg.claude_md_path)
+            if p.exists():
+                context_parts.append(p.read_text(encoding="utf-8"))
+                logger.info("Loaded study context: %s", p)
+
+        has_context = bool(context_parts)
+
+        # Render the job script for the appropriate scheduler.
         template_name = f"{cluster_cfg.scheduler_type}.sh.j2"
         template = _jinja_env.get_template(template_name)
         job_script = template.render(
@@ -164,7 +180,7 @@ class SprintManager:
             orchestrator_url=self.config.orchestrator_url or "",
             shared_secret=self.config.shared_secret or "",
             claude_md_path=f"{cluster_cfg.working_dir}/{sprint_dirname}/CLAUDE.md"
-            if study_cfg and study_cfg.claude_md_path
+            if has_context
             else "",
             red_team_max_rounds=study_cfg.red_team_max_rounds if study_cfg else 3,
         )
@@ -181,17 +197,20 @@ class SprintManager:
         sprint_remote_dir = f"{cluster_cfg.working_dir}/{sprint_dirname}"
         await ssh.run(f"mkdir -p {sprint_remote_dir}")
 
-        # Upload CLAUDE.md to the sprint directory if configured.
-        if study_cfg and study_cfg.claude_md_path:
-            local_claude_md = Path(study_cfg.claude_md_path)
-            if local_claude_md.exists():
-                content = local_claude_md.read_text(encoding="utf-8")
-                remote_claude_md = f"{sprint_remote_dir}/CLAUDE.md"
-                await ssh.run(
-                    f"cat > {remote_claude_md} << 'RESEARCHLOOP_EOF'\n"
-                    f"{content}\nRESEARCHLOOP_EOF"
-                )
-                logger.info("Uploaded CLAUDE.md to %s", remote_claude_md)
+        # Upload merged CLAUDE.md to the sprint directory.
+        if has_context:
+            merged = "\n\n".join(context_parts)
+            remote_claude_md = f"{sprint_remote_dir}/CLAUDE.md"
+            await ssh.run(
+                f"cat > {remote_claude_md} "
+                f"<< 'RESEARCHLOOP_EOF'\n{merged}\n"
+                f"RESEARCHLOOP_EOF"
+            )
+            logger.info(
+                "Uploaded merged CLAUDE.md (%d parts) to %s",
+                len(context_parts),
+                remote_claude_md,
+            )
 
         # Write the job script to a temporary approach via stdin.
         script_path = f"{sprint_remote_dir}/run_sprint.sh"

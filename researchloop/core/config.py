@@ -37,6 +37,7 @@ class ClusterConfig:
     working_dir: str = ""
     max_concurrent_jobs: int = 4
     environment: dict[str, str] = field(default_factory=dict)
+    context_paths: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -95,6 +96,9 @@ class Config:
 
 
 def _parse_cluster(data: dict) -> ClusterConfig:
+    ctx = data.get("context_paths", [])
+    if isinstance(ctx, str):
+        ctx = [ctx]
     return ClusterConfig(
         name=data["name"],
         host=data.get("host", ""),
@@ -105,6 +109,7 @@ def _parse_cluster(data: dict) -> ClusterConfig:
         working_dir=data.get("working_dir", ""),
         max_concurrent_jobs=data.get("max_concurrent_jobs", 4),
         environment=data.get("environment", {}),
+        context_paths=ctx,
     )
 
 
