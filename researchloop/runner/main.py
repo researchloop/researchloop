@@ -27,6 +27,7 @@ async def _run_pipeline(
     orchestrator_url: str,
     shared_secret: str,
     red_team_rounds: int,
+    claude_command: str = "claude --dangerously-skip-permissions",
 ) -> None:
     """Execute the full pipeline and report back to the orchestrator."""
     sprint_path = Path(sprint_dir)
@@ -42,6 +43,7 @@ async def _run_pipeline(
         orchestrator_url=orchestrator_url,
         shared_secret=shared_secret,
         red_team_rounds=red_team_rounds,
+        claude_command=claude_command,
     )
 
     summary: str | None = None
@@ -111,6 +113,12 @@ def cli() -> None:
     show_default=True,
     help="Maximum number of red-team / fix rounds",
 )
+@click.option(
+    "--claude-command",
+    default="claude --dangerously-skip-permissions",
+    show_default=True,
+    help="Command to invoke Claude CLI",
+)
 def run(
     sprint_id: str,
     sprint_dir: str,
@@ -119,6 +127,7 @@ def run(
     orchestrator_url: str,
     shared_secret: str,
     red_team_rounds: int,
+    claude_command: str,
 ) -> None:
     """Run the full research sprint pipeline."""
     logger.info(
@@ -136,6 +145,7 @@ def run(
             orchestrator_url=orchestrator_url,
             shared_secret=shared_secret,
             red_team_rounds=red_team_rounds,
+            claude_command=claude_command,
         )
     )
     logger.info("Sprint %s finished.", sprint_id)

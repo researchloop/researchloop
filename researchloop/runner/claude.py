@@ -38,6 +38,7 @@ async def run_claude(
     claude_md: str | None = None,
     session_id: str | None = None,
     timeout: int = 3600,
+    claude_command: str = "claude --dangerously-skip-permissions",
 ) -> tuple[str, str | None]:
     """Run the Claude CLI with the given prompt.
 
@@ -60,8 +61,11 @@ async def run_claude(
     tuple[str, str | None]
         ``(output_text, session_id)`` parsed from the JSON output.
     """
+    # Split the command string to support things like
+    # "singularity exec img.sif claude --dangerously-skip-permissions"
+    base_cmd = claude_command.split()
     cmd: list[str] = [
-        "claude",
+        *base_cmd,
         "-p",
         prompt,
         "--output-format",

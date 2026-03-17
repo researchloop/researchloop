@@ -208,6 +208,12 @@ class SprintManager:
             if study_cfg
             else "8:00:00",
             environment=cluster_cfg.environment,
+            claude_command=(
+                (study_cfg.claude_command if study_cfg else "")
+                or cluster_cfg.claude_command
+                or self.config.claude_command
+                or "claude --dangerously-skip-permissions"
+            ),
             orchestrator_url=self.config.orchestrator_url or "",
             shared_secret=self.config.shared_secret or "",
             claude_md_path=f"{cluster_cfg.working_dir}/{sprint_dirname}/CLAUDE.md"

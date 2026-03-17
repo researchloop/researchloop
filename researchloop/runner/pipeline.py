@@ -40,6 +40,7 @@ class Pipeline:
         orchestrator_url: str,
         shared_secret: str,
         red_team_rounds: int = 3,
+        claude_command: str = "claude --dangerously-skip-permissions",
     ) -> None:
         self.sprint_id = sprint_id
         self.sprint_dir = sprint_dir
@@ -48,6 +49,7 @@ class Pipeline:
         self.orchestrator_url = orchestrator_url
         self.shared_secret = shared_secret
         self.red_team_rounds = red_team_rounds
+        self.claude_command = claude_command
 
         self._started_at = datetime.now(timezone.utc).isoformat()
         self._status_path = Path(sprint_dir) / ".researchloop" / "status.json"
@@ -80,6 +82,7 @@ class Pipeline:
             prompt=research_prompt,
             working_dir=self.sprint_dir,
             claude_md=self.claude_md,
+            claude_command=self.claude_command,
         )
         logger.info("Research step complete (%d chars output)", len(output))
 
@@ -101,6 +104,7 @@ class Pipeline:
                 working_dir=self.sprint_dir,
                 claude_md=self.claude_md,
                 session_id=self._session_id,
+                claude_command=self.claude_command,
             )
             logger.info(
                 "Red-team round %d complete (%d chars)", round_num, len(rt_output)
@@ -128,6 +132,7 @@ class Pipeline:
                 working_dir=self.sprint_dir,
                 claude_md=self.claude_md,
                 session_id=self._session_id,
+                claude_command=self.claude_command,
             )
             logger.info("Fix round %d complete (%d chars)", round_num, len(fix_output))
 

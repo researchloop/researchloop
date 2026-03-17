@@ -37,6 +37,7 @@ class ClusterConfig:
     working_dir: str = ""
     max_concurrent_jobs: int = 4
     environment: dict[str, str] = field(default_factory=dict)
+    claude_command: str = "claude --dangerously-skip-permissions"
     context: str = ""
     context_paths: list[str] = field(default_factory=list)
 
@@ -50,6 +51,7 @@ class StudyConfig:
     claude_md_path: str = ""
     context: str = ""
     sprints_dir: str = ""
+    claude_command: str = ""
     max_sprint_duration_hours: int = 8
     red_team_max_rounds: int = 3
     description: str = ""
@@ -92,6 +94,7 @@ class Config:
     slack: SlackConfig | None = None
     ntfy: NtfyConfig | None = None
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
+    claude_command: str = ""
     context: str = ""
     context_paths: list[str] = field(default_factory=list)
     db_path: str = "researchloop.db"
@@ -114,6 +117,10 @@ def _parse_cluster(data: dict) -> ClusterConfig:
         working_dir=data.get("working_dir", ""),
         max_concurrent_jobs=data.get("max_concurrent_jobs", 4),
         environment=data.get("environment", {}),
+        claude_command=data.get(
+            "claude_command",
+            "claude --dangerously-skip-permissions",
+        ),
         context=data.get("context", ""),
         context_paths=ctx,
     )
@@ -128,6 +135,7 @@ def _parse_study(data: dict) -> StudyConfig:
         sprints_dir=data.get("sprints_dir", ""),
         max_sprint_duration_hours=data.get("max_sprint_duration_hours", 8),
         red_team_max_rounds=data.get("red_team_max_rounds", 3),
+        claude_command=data.get("claude_command", ""),
         description=data.get("description", ""),
         allow_loop=data.get("allow_loop", True),
     )
@@ -172,6 +180,7 @@ def _parse_config(data: dict) -> Config:
         slack=slack,
         ntfy=ntfy,
         dashboard=dashboard,
+        claude_command=data.get("claude_command", ""),
         context=data.get("context", ""),
         context_paths=global_ctx,
         db_path=data.get("db_path", "researchloop.db"),

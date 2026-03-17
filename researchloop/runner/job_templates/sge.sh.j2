@@ -39,7 +39,8 @@ researchloop-runner run \
     --idea "{{ idea }}" \
     --orchestrator-url "{{ orchestrator_url }}" \
     --shared-secret "{{ shared_secret }}" \
-    --red-team-rounds {{ red_team_max_rounds }}
+    --red-team-rounds {{ red_team_max_rounds }} \
+    --claude-command "{{ claude_command }}"
 
 EXIT_CODE=$?
 echo "Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
