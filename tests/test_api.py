@@ -9,24 +9,40 @@ from fastapi.testclient import TestClient
 from researchloop.core.config import (
     ClusterConfig,
     Config,
+    DashboardConfig,
     StudyConfig,
 )
 from researchloop.core.orchestrator import Orchestrator, create_app
+from researchloop.dashboard.auth import hash_password
 from researchloop.db import queries
 
 
 def _make_app(
     shared_secret: str | None = "test-key",
+    password_hash: str | None = None,
 ) -> tuple[TestClient, Orchestrator]:
     """Create a TestClient with an in-memory orchestrator."""
     config = Config(
-        studies=[StudyConfig(name="test", cluster="local", sprints_dir="./sp")],
+        studies=[
+            StudyConfig(
+                name="test",
+                cluster="local",
+                sprints_dir="./sp",
+            )
+        ],
         clusters=[
-            ClusterConfig(name="local", host="localhost", scheduler_type="local")
+            ClusterConfig(
+                name="local",
+                host="localhost",
+                scheduler_type="local",
+            )
         ],
         db_path=":memory:",
         artifact_dir=tempfile.mkdtemp(),
         shared_secret=shared_secret,
+        dashboard=DashboardConfig(
+            password_hash=password_hash,
+        ),
     )
     orch = Orchestrator(config)
     app = create_app(orch)
@@ -201,3 +217,74 @@ class TestArtifactUpload:
                 headers={"x-shared-secret": "test-key"},
             )
             assert resp.status_code == 404
+
+
+class TestTokenAuth:
+    """Bearer token auth via POST /api/auth."""
+
+    def test_get_token_with_password(self):
+        pw_hash = hash_password("mypassword")
+        client, _ = _make_app(shared_secret="secret", password_hash=pw_hash)
+        with client:
+            resp = client.post(
+                "/api/auth",
+                json={"password": "mypassword"},
+            )
+            assert resp.status_code == 200
+            assert "token" in resp.json()
+
+    def test_wrong_password_rejected(self):
+        pw_hash = hash_password("mypassword")
+        client, _ = _make_app(shared_secret="secret", password_hash=pw_hash)
+        with client:
+            resp = client.post(
+                "/api/auth",
+                json={"password": "wrong"},
+            )
+            assert resp.status_code == 401
+
+    def test_token_grants_api_access(self):
+        """Token from /api/auth works on protected endpoints."""
+        pw_hash = hash_password("mypassword")
+        client, _ = _make_app(shared_secret="secret", password_hash=pw_hash)
+        with client:
+            # Get token.
+            auth_resp = client.post(
+                "/api/auth",
+                json={"password": "mypassword"},
+            )
+            token = auth_resp.json()["token"]
+
+            # Use token (not shared_secret) to access API.
+            resp = client.get(
+                "/api/studies",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert resp.status_code == 200
+            assert "studies" in resp.json()
+
+    def test_invalid_token_rejected(self):
+        client, _ = _make_app(shared_secret="secret")
+        with client:
+            resp = client.get(
+                "/api/studies",
+                headers={"Authorization": "Bearer invalid-token"},
+            )
+            assert resp.status_code == 401
+
+    def test_no_credentials_rejected(self):
+        client, _ = _make_app(shared_secret="secret")
+        with client:
+            resp = client.get("/api/studies")
+            assert resp.status_code == 401
+
+    def test_shared_secret_still_works(self):
+        """Shared secret auth continues to work alongside tokens."""
+        pw_hash = hash_password("mypassword")
+        client, _ = _make_app(shared_secret="secret", password_hash=pw_hash)
+        with client:
+            resp = client.get(
+                "/api/studies",
+                headers={"x-shared-secret": "secret"},
+            )
+            assert resp.status_code == 200
