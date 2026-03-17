@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+import httpx
 
 from researchloop import __version__
 
@@ -91,6 +92,72 @@ def truncate(text: str | None, length: int = 50) -> str:
     if len(text) > length:
         return text[: length - 1] + "\u2026"
     return text
+
+
+# ---------------------------------------------------------------------------
+# Remote API helper
+# ---------------------------------------------------------------------------
+
+
+def _api_post(
+    config: Any,
+    path: str,
+    body: dict | None = None,
+) -> dict:
+    """POST to the orchestrator API. Raises ClickException on failure."""
+
+    url = config.orchestrator_url
+    if not url:
+        raise click.ClickException(
+            "orchestrator_url is not set in config or env. "
+            "Set RESEARCHLOOP_ORCHESTRATOR_URL or add it "
+            "to researchloop.toml."
+        )
+
+    headers: dict[str, str] = {}
+    if config.shared_secret:
+        headers["X-Shared-Secret"] = config.shared_secret
+
+    full_url = f"{url.rstrip('/')}{path}"
+    try:
+        resp = httpx.post(
+            full_url,
+            json=body or {},
+            headers=headers,
+            timeout=30,
+        )
+        if resp.status_code >= 400:
+            detail = resp.text[:200]
+            raise click.ClickException(f"API error {resp.status_code}: {detail}")
+        return resp.json()
+    except httpx.ConnectError:
+        raise click.ClickException(f"Cannot connect to orchestrator at {url}")
+    except httpx.TimeoutException:
+        raise click.ClickException(f"Request to orchestrator timed out: {full_url}")
+
+
+def _api_get(config: Any, path: str) -> dict:
+    """GET from the orchestrator API."""
+
+    url = config.orchestrator_url
+    if not url:
+        raise click.ClickException("orchestrator_url is not set.")
+
+    headers: dict[str, str] = {}
+    if config.shared_secret:
+        headers["X-Shared-Secret"] = config.shared_secret
+
+    full_url = f"{url.rstrip('/')}{path}"
+    try:
+        resp = httpx.get(full_url, headers=headers, timeout=30)
+        if resp.status_code >= 400:
+            detail = resp.text[:200]
+            raise click.ClickException(f"API error {resp.status_code}: {detail}")
+        return resp.json()
+    except httpx.ConnectError:
+        raise click.ClickException(f"Cannot connect to orchestrator at {url}")
+    except httpx.TimeoutException:
+        raise click.ClickException(f"Request to orchestrator timed out: {full_url}")
 
 
 # ---------------------------------------------------------------------------
@@ -527,49 +594,27 @@ def sprint() -> None:
 # -- sprint run -------------------------------------------------------
 
 
-async def _sprint_run(config_path: str | None, study_name: str, idea: str) -> None:
+def _sprint_run(config_path: str | None, study_name: str, idea: str) -> None:
     config = _load_config(config_path)
-    db = await _open_db(config)
-    try:
-        await _ensure_studies_synced(config, db)
+    result = _api_post(
+        config,
+        "/api/sprints",
+        {"study_name": study_name, "idea": idea},
+    )
 
-        from researchloop.core.models import format_sprint_dirname, generate_sprint_id
-        from researchloop.db import queries
-
-        # Validate study exists.
-        study_row = await queries.get_study(db, study_name)
-        if study_row is None:
-            raise click.ClickException(
-                f"Study not found: {study_name}. "
-                "Check your researchloop.toml or run 'researchloop study list'."
-            )
-
-        sprint_id = generate_sprint_id()
-        directory = format_sprint_dirname(sprint_id, idea)
-
-        sprint_row = await queries.create_sprint(
-            db,
-            id=sprint_id,
-            study_name=study_name,
-            idea=idea,
-            directory=directory,
-        )
-
-        click.echo()
-        click.echo(click.style("Sprint submitted!", fg="green", bold=True))
-        click.echo(
-            click.style("  ID   : ", dim=True)
-            + click.style(sprint_row["id"], fg="cyan", bold=True)
-        )
-        click.echo(click.style("  Study: ", dim=True) + study_name)
-        click.echo(click.style("  Idea : ", dim=True) + idea)
-        click.echo(click.style("  Dir  : ", dim=True) + directory)
-        click.echo(
-            click.style("  Status: ", dim=True) + styled_status(sprint_row["status"])
-        )
-        click.echo()
-    finally:
-        await db.close()
+    click.echo()
+    click.echo(click.style("Sprint submitted!", fg="green", bold=True))
+    click.echo(
+        click.style("  ID    : ", dim=True)
+        + click.style(result["sprint_id"], fg="cyan", bold=True)
+    )
+    click.echo(click.style("  Study : ", dim=True) + study_name)
+    click.echo(click.style("  Idea  : ", dim=True) + idea)
+    click.echo(
+        click.style("  Status: ", dim=True)
+        + styled_status(result.get("status", "submitted"))
+    )
+    click.echo()
 
 
 @sprint.command("run")
@@ -584,7 +629,7 @@ async def _sprint_run(config_path: str | None, study_name: str, idea: str) -> No
 @click.pass_context
 def sprint_run(ctx: click.Context, idea: str, study_name: str) -> None:
     """Submit a new sprint with the given idea."""
-    run_async(_sprint_run(ctx.obj.get("config_path"), study_name, idea))
+    _sprint_run(ctx.obj.get("config_path"), study_name, idea)
 
 
 # -- sprint list ------------------------------------------------------
@@ -717,30 +762,14 @@ def sprint_show(ctx: click.Context, sprint_id: str) -> None:
 # -- sprint cancel -----------------------------------------------------
 
 
-async def _sprint_cancel(config_path: str | None, sprint_id: str) -> None:
+def _sprint_cancel(config_path: str | None, sprint_id: str) -> None:
     config = _load_config(config_path)
-    db = await _open_db(config)
-    try:
-        from researchloop.db import queries
+    _api_post(config, f"/api/sprints/{sprint_id}/cancel")
 
-        sp = await queries.get_sprint(db, sprint_id)
-        if sp is None:
-            raise click.ClickException(f"Sprint not found: {sprint_id}")
-
-        terminal = {"completed", "failed", "cancelled"}
-        if sp["status"] in terminal:
-            raise click.ClickException(
-                f"Sprint {sprint_id} is already {sp['status']}; cannot cancel."
-            )
-
-        await queries.update_sprint(db, sprint_id, status="cancelled")
-
-        click.echo(
-            click.style("Cancelled", fg="yellow", bold=True)
-            + f" sprint {click.style(sprint_id, fg='cyan', bold=True)}"
-        )
-    finally:
-        await db.close()
+    click.echo(
+        click.style("Cancelled", fg="yellow", bold=True)
+        + f" sprint {click.style(sprint_id, fg='cyan', bold=True)}"
+    )
 
 
 @sprint.command("cancel")
@@ -748,7 +777,7 @@ async def _sprint_cancel(config_path: str | None, sprint_id: str) -> None:
 @click.pass_context
 def sprint_cancel(ctx: click.Context, sprint_id: str) -> None:
     """Cancel a running sprint."""
-    run_async(_sprint_cancel(ctx.obj.get("config_path"), sprint_id))
+    _sprint_cancel(ctx.obj.get("config_path"), sprint_id)
 
 
 # ===================================================================
@@ -764,45 +793,23 @@ def loop() -> None:
 # -- loop start -------------------------------------------------------
 
 
-async def _loop_start(config_path: str | None, study_name: str, count: int) -> None:
-    import secrets
-
+def _loop_start(config_path: str | None, study_name: str, count: int) -> None:
     config = _load_config(config_path)
-    db = await _open_db(config)
-    try:
-        await _ensure_studies_synced(config, db)
+    result = _api_post(
+        config,
+        "/api/loops",
+        {"study_name": study_name, "count": count},
+    )
 
-        from researchloop.db import queries
-
-        study_row = await queries.get_study(db, study_name)
-        if study_row is None:
-            raise click.ClickException(
-                f"Study not found: {study_name}. "
-                "Check your researchloop.toml or run 'researchloop study list'."
-            )
-
-        loop_id = f"loop-{secrets.token_hex(3)}"
-        loop_row = await queries.create_auto_loop(
-            db,
-            id=loop_id,
-            study_name=study_name,
-            total_count=count,
-        )
-
-        click.echo()
-        click.echo(click.style("Auto-loop started!", fg="green", bold=True))
-        click.echo(
-            click.style("  ID      : ", dim=True)
-            + click.style(loop_row["id"], fg="cyan", bold=True)
-        )
-        click.echo(click.style("  Study   : ", dim=True) + study_name)
-        click.echo(click.style("  Count   : ", dim=True) + str(count))
-        click.echo(
-            click.style("  Status  : ", dim=True) + styled_status(loop_row["status"])
-        )
-        click.echo()
-    finally:
-        await db.close()
+    click.echo()
+    click.echo(click.style("Auto-loop started!", fg="green", bold=True))
+    click.echo(
+        click.style("  ID    : ", dim=True)
+        + click.style(result["loop_id"], fg="cyan", bold=True)
+    )
+    click.echo(click.style("  Study : ", dim=True) + study_name)
+    click.echo(click.style("  Count : ", dim=True) + str(count))
+    click.echo()
 
 
 @loop.command("start")
@@ -811,7 +818,7 @@ async def _loop_start(config_path: str | None, study_name: str, count: int) -> N
 @click.pass_context
 def loop_start(ctx: click.Context, study_name: str, count: int) -> None:
     """Start an auto-loop."""
-    run_async(_loop_start(ctx.obj.get("config_path"), study_name, count))
+    _loop_start(ctx.obj.get("config_path"), study_name, count)
 
 
 # -- loop status -------------------------------------------------------

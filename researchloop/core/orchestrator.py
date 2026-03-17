@@ -407,6 +407,76 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         studies = await orchestrator.study_manager.list_all()
         return JSONResponse({"studies": studies})
 
+    # -- Sprint / loop management API -----------------------------------
+
+    @app.post("/api/sprints")
+    async def create_sprint(
+        request: Request,
+        x_shared_secret: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Create and submit a sprint."""
+        _check_shared_secret(x_shared_secret)
+        assert orchestrator.sprint_manager is not None
+        body = await request.json()
+        study_name = body.get("study_name", "")
+        idea = body.get("idea", "")
+        if not study_name or not idea:
+            raise HTTPException(
+                status_code=400,
+                detail="study_name and idea are required",
+            )
+        sprint = await orchestrator.sprint_manager.run_sprint(study_name, idea)
+        return JSONResponse(
+            {
+                "sprint_id": sprint.id,
+                "study_name": sprint.study_name,
+                "status": sprint.status.value,
+                "job_id": sprint.job_id,
+            },
+            status_code=201,
+        )
+
+    @app.post("/api/sprints/{sprint_id}/cancel")
+    async def cancel_sprint(
+        sprint_id: str,
+        x_shared_secret: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Cancel a sprint."""
+        _check_shared_secret(x_shared_secret)
+        assert orchestrator.sprint_manager is not None
+        success = await orchestrator.sprint_manager.cancel_sprint(sprint_id)
+        return JSONResponse({"cancelled": success})
+
+    @app.post("/api/loops")
+    async def create_loop(
+        request: Request,
+        x_shared_secret: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Start an auto-loop."""
+        _check_shared_secret(x_shared_secret)
+        assert orchestrator.auto_loop is not None
+        body = await request.json()
+        study_name = body.get("study_name", "")
+        count = body.get("count", 5)
+        if not study_name:
+            raise HTTPException(
+                status_code=400,
+                detail="study_name is required",
+            )
+        loop_id = await orchestrator.auto_loop.start(study_name, count)
+        return JSONResponse({"loop_id": loop_id}, status_code=201)
+
+    @app.post("/api/loops/{loop_id}/stop")
+    async def stop_loop(
+        loop_id: str,
+        x_shared_secret: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Stop an auto-loop."""
+        _check_shared_secret(x_shared_secret)
+        assert orchestrator.auto_loop is not None
+        await orchestrator.auto_loop.stop(loop_id)
+        return JSONResponse({"stopped": True})
+
     # -- Slack Events API -----------------------------------------------
 
     @app.post("/api/slack/events")

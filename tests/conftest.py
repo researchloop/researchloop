@@ -77,6 +77,7 @@ def toml_config_file(tmp_path: Path) -> Path:
 db_path = "researchloop.db"
 artifact_dir = "artifacts"
 shared_secret = "test-key"
+orchestrator_url = "http://localhost:8080"
 
 [[cluster]]
 name = "local"
