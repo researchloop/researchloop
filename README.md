@@ -66,15 +66,33 @@ uv sync
 
 ### Authenticate
 
-```bash
-# Log in to Claude (Max subscription or API key)
-researchloop login
+Claude CLI needs to be authenticated on both the orchestrator server and the HPC cluster.
 
-# Check auth status
-researchloop auth-status
+**Interactive (local machine or SSH session with a browser):**
+```bash
+researchloop login        # runs claude auth login
+researchloop auth-status  # check if authenticated
 ```
 
-Run this on both the orchestrator server and the HPC cluster. If you use a Max subscription, `claude login` handles the browser-based OAuth flow. If you use an API key, you can skip this and set `ANTHROPIC_API_KEY` in `[cluster.environment]` instead.
+**Headless server (Fly.io, Docker, CI):**
+```bash
+# On your local machine, generate a setup token:
+claude setup-token
+
+# Then set it as an env var on the server:
+fly secrets set CLAUDE_SETUP_TOKEN="<token>" -a your-app
+# or: export CLAUDE_SETUP_TOKEN="<token>"
+```
+
+**API key (alternative to Max subscription):**
+```bash
+# Set on the server:
+fly secrets set ANTHROPIC_API_KEY="sk-ant-..." -a your-app
+
+# Or for HPC cluster jobs, set in the cluster config:
+# [cluster.environment]
+# ANTHROPIC_API_KEY = "sk-ant-..."
+```
 
 You can also check auth status from Slack by sending "auth status" to the bot.
 
