@@ -20,19 +20,15 @@ class TestSGEScheduler:
 
     async def test_submit_success(self) -> None:
         self.ssh.run = AsyncMock(
-            side_effect=[
-                ("", "", 0),  # write script
-                (
-                    'Your job 12345 ("test") has been submitted\n',
-                    "",
-                    0,
-                ),  # qsub
-                ("", "", 0),  # rm cleanup
-            ]
+            return_value=(
+                'Your job 12345 ("test") has been submitted\n',
+                "",
+                0,
+            ),
         )
         job_id = await self.scheduler.submit(
             self.ssh,
-            "#!/bin/bash\necho hi",
+            "/tmp/work/run_sprint.sh",
             "test-job",
             "/tmp/work",
         )
@@ -40,19 +36,15 @@ class TestSGEScheduler:
 
     async def test_submit_parses_large_job_id(self) -> None:
         self.ssh.run = AsyncMock(
-            side_effect=[
-                ("", "", 0),
-                (
-                    'Your job 9876543 ("big") has been submitted\n',
-                    "",
-                    0,
-                ),
-                ("", "", 0),
-            ]
+            return_value=(
+                'Your job 9876543 ("big") has been submitted\n',
+                "",
+                0,
+            ),
         )
         job_id = await self.scheduler.submit(
             self.ssh,
-            "script",
+            "/tmp/work/run_sprint.sh",
             "big-job",
             "/tmp/work",
         )
@@ -60,45 +52,19 @@ class TestSGEScheduler:
 
     async def test_submit_qsub_failure(self) -> None:
         self.ssh.run = AsyncMock(
-            side_effect=[
-                ("", "", 0),  # write script
-                ("", "error: invalid", 1),  # qsub fails
-            ]
+            return_value=("", "error: invalid", 1),
         )
         with pytest.raises(RuntimeError, match="qsub failed"):
             await self.scheduler.submit(
                 self.ssh,
-                "script",
-                "test-job",
-                "/tmp/work",
-            )
-
-    async def test_submit_write_failure(self) -> None:
-        self.ssh.run = AsyncMock(
-            return_value=(
-                "",
-                "Permission denied",
-                1,
-            ),
-        )
-        with pytest.raises(RuntimeError, match="Failed to write script"):
-            await self.scheduler.submit(
-                self.ssh,
-                "script",
+                "/tmp/work/run_sprint.sh",
                 "test-job",
                 "/tmp/work",
             )
 
     async def test_submit_unparseable_output(self) -> None:
         self.ssh.run = AsyncMock(
-            side_effect=[
-                ("", "", 0),  # write script
-                (
-                    "unexpected output\n",
-                    "",
-                    0,
-                ),  # qsub ok but bad output
-            ]
+            return_value=("unexpected output\n", "", 0),
         )
         with pytest.raises(
             RuntimeError,

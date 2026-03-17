@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import re
 import textwrap
-import uuid
 
 from researchloop.schedulers.base import BaseScheduler
 
@@ -37,24 +36,8 @@ class SGEScheduler(BaseScheduler):
         working_dir: str,
         env: dict[str, str] | None = None,
     ) -> str:
-        # Write script to remote file
-        script_filename = f".researchloop_submit_{uuid.uuid4().hex[:12]}.sh"
-        remote_script = f"{working_dir}/{script_filename}"
-
-        write_cmd = (
-            f"mkdir -p {working_dir} && "
-            f"cat > {remote_script} "
-            f"<< 'RESEARCHLOOP_EOF'\n{script}\n"
-            f"RESEARCHLOOP_EOF"
-        )
-        stdout, stderr, rc = await ssh.run(  # type: ignore[attr-defined]
-            write_cmd, timeout=30
-        )
-        if rc != 0:
-            raise RuntimeError(f"Failed to write script: {stderr}")
-
-        # Submit via qsub
-        submit_cmd = f"cd {working_dir} && qsub {remote_script}"
+        # Submit via qsub — script is a remote file path
+        submit_cmd = f"cd {working_dir} && qsub {script}"
         stdout, stderr, rc = await ssh.run(  # type: ignore[attr-defined]
             submit_cmd, timeout=60
         )
@@ -74,10 +57,6 @@ class SGEScheduler(BaseScheduler):
             job_name,
         )
 
-        # Cleanup temp script
-        await ssh.run(  # type: ignore[attr-defined]
-            f"rm -f {remote_script}", timeout=10
-        )
         return job_id
 
     async def status(self, ssh: object, job_id: str) -> str:

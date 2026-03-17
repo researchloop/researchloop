@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import re
 import textwrap
-import uuid
 
 from researchloop.schedulers.base import BaseScheduler
 
@@ -45,29 +44,11 @@ class SlurmScheduler(BaseScheduler):
         working_dir: str,
         env: dict[str, str] | None = None,
     ) -> str:
-        """Write *script* to a temp file on the remote host and ``sbatch`` it.
+        """Submit *script* (a remote file path) via ``sbatch``.
 
         Returns the SLURM job ID parsed from the ``sbatch`` output.
         """
-        # Create a unique remote path for the submission script.
-        script_filename = f".researchloop_submit_{uuid.uuid4().hex[:12]}.sh"
-        remote_script = f"{working_dir}/{script_filename}"
-
-        # Write the script content to the remote file.
-        write_cmd = (
-            f"mkdir -p {working_dir} && "
-            f"cat > {remote_script} "
-            f"<< 'RESEARCHLOOP_EOF'\n{script}\n"
-            f"RESEARCHLOOP_EOF"
-        )
-        stdout, stderr, rc = await ssh.run(write_cmd, timeout=30)  # type: ignore[attr-defined]
-        if rc != 0:
-            raise RuntimeError(
-                f"Failed to write submission script to {remote_script}: {stderr}"
-            )
-
-        # Submit via sbatch.
-        submit_cmd = f"cd {working_dir} && sbatch {remote_script}"
+        submit_cmd = f"cd {working_dir} && sbatch {script}"
         stdout, stderr, rc = await ssh.run(submit_cmd, timeout=60)  # type: ignore[attr-defined]
         if rc != 0:
             raise RuntimeError(f"sbatch failed (exit {rc}): {stderr}")
@@ -81,9 +62,6 @@ class SlurmScheduler(BaseScheduler):
         logger.info(
             "Submitted SLURM job %s (name=%s, dir=%s)", job_id, job_name, working_dir
         )
-
-        # Clean up the temp script (best-effort).
-        await ssh.run(f"rm -f {remote_script}", timeout=10)  # type: ignore[attr-defined]
 
         return job_id
 

@@ -18,17 +18,12 @@ class TestSlurmScheduler:
         self.ssh = AsyncMock()
 
     async def test_submit_success(self):
-        # Mock the SSH responses
         self.ssh.run = AsyncMock(
-            side_effect=[
-                ("", "", 0),  # write script
-                ("Submitted batch job 12345\n", "", 0),  # sbatch
-                ("", "", 0),  # rm cleanup
-            ]
+            return_value=("Submitted batch job 12345\n", "", 0),
         )
         job_id = await self.scheduler.submit(
             self.ssh,
-            "#!/bin/bash\necho hi",
+            "/tmp/work/run_sprint.sh",
             "test-job",
             "/tmp/work",
         )
@@ -36,15 +31,12 @@ class TestSlurmScheduler:
 
     async def test_submit_failure(self):
         self.ssh.run = AsyncMock(
-            side_effect=[
-                ("", "", 0),  # write script
-                ("", "error: invalid", 1),  # sbatch fails
-            ]
+            return_value=("", "error: invalid", 1),
         )
         with pytest.raises(RuntimeError, match="sbatch failed"):
             await self.scheduler.submit(
                 self.ssh,
-                "script",
+                "/tmp/work/run_sprint.sh",
                 "test-job",
                 "/tmp/work",
             )
