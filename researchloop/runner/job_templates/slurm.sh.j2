@@ -9,7 +9,17 @@
 
 set -euo pipefail
 
-# Ensure common user bin dirs are on PATH (SLURM doesn't source .bashrc)
+# Source user's shell profile so tools like claude are on PATH.
+# SLURM jobs don't source these by default.
+if [ -f "$HOME/.bashrc" ]; then
+    set +euo pipefail  # .bashrc may have unset vars
+    source "$HOME/.bashrc"
+    set -euo pipefail
+elif [ -f "$HOME/.profile" ]; then
+    set +euo pipefail
+    source "$HOME/.profile"
+    set -euo pipefail
+fi
 export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
 
 # --- Environment ---

@@ -11,7 +11,16 @@
 
 set -euo pipefail
 
-# Ensure common user bin dirs are on PATH (SGE doesn't source .bashrc)
+# Source user's shell profile so tools like claude are on PATH.
+if [ -f "$HOME/.bashrc" ]; then
+    set +euo pipefail
+    source "$HOME/.bashrc"
+    set -euo pipefail
+elif [ -f "$HOME/.profile" ]; then
+    set +euo pipefail
+    source "$HOME/.profile"
+    set -euo pipefail
+fi
 export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
 
 # --- Environment ---
