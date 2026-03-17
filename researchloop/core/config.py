@@ -37,6 +37,7 @@ class ClusterConfig:
     working_dir: str = ""
     max_concurrent_jobs: int = 4
     environment: dict[str, str] = field(default_factory=dict)
+    context: str = ""
     context_paths: list[str] = field(default_factory=list)
 
 
@@ -47,6 +48,7 @@ class StudyConfig:
     name: str
     cluster: str
     claude_md_path: str = ""
+    context: str = ""
     sprints_dir: str = ""
     max_sprint_duration_hours: int = 8
     red_team_max_rounds: int = 3
@@ -109,6 +111,7 @@ def _parse_cluster(data: dict) -> ClusterConfig:
         working_dir=data.get("working_dir", ""),
         max_concurrent_jobs=data.get("max_concurrent_jobs", 4),
         environment=data.get("environment", {}),
+        context=data.get("context", ""),
         context_paths=ctx,
     )
 
@@ -118,6 +121,7 @@ def _parse_study(data: dict) -> StudyConfig:
         name=data["name"],
         cluster=data.get("cluster", ""),
         claude_md_path=data.get("claude_md_path", ""),
+        context=data.get("context", ""),
         sprints_dir=data.get("sprints_dir", ""),
         max_sprint_duration_hours=data.get("max_sprint_duration_hours", 8),
         red_team_max_rounds=data.get("red_team_max_rounds", 3),

@@ -21,19 +21,19 @@ scheduler_type = "local"          # "slurm", "sge", or "local"
 working_dir = "/tmp/researchloop"
 max_concurrent_jobs = 4
 
+# Inline context shared across all studies on this cluster.
+# Use TOML multi-line strings (triple quotes) for longer text.
+# context = """
+# This cluster runs Ubuntu 22.04 with Python 3.10.
+# GPU nodes have 4x A100 80GB. Use `module load cuda/12.1` for CUDA.
+# """
+
+# Or point to external files for longer context:
+# context_paths = ["./context/cluster.md", "./context/tools.md"]
+
 # [cluster.environment]
 # CUDA_VISIBLE_DEVICES = "0,1"
 # ANTHROPIC_API_KEY = "sk-..."  # only if not using `researchloop login`
-
-# [[cluster]]
-# name = "hpc"
-# host = "login.cluster.example.com"
-# port = 22
-# user = "researcher"
-# key_path = "~/.ssh/id_ed25519"
-# scheduler_type = "slurm"
-# working_dir = "/scratch/researcher/researchloop"
-# max_concurrent_jobs = 8
 
 # ---------------------------------------------------------------------------
 # Studies
@@ -43,10 +43,29 @@ max_concurrent_jobs = 4
 name = "my-first-study"
 cluster = "local"
 description = "Exploring feature absorption in language models"
-claude_md_path = "./studies/my-first-study/CLAUDE.md"
 sprints_dir = "./studies/my-first-study/sprints"
 max_sprint_duration_hours = 8
 red_team_max_rounds = 3
+
+# Study context — tells Claude what you're researching.
+# Write it inline:
+context = """
+We are studying feature absorption in language models — the phenomenon
+where sparse autoencoder features absorb semantically related but
+distinct concepts into a single feature.
+
+Goals:
+- Reproduce the absorption effect in GPT-2 small
+- Quantify how training duration affects absorption rate
+- Test whether wider SAEs reduce absorption
+
+Constraints:
+- Use Python 3.10+, PyTorch, TransformerLens, SAELens
+- Save all plots to results/ as PNG
+"""
+
+# Or point to a file (both can be used — they get merged):
+# claude_md_path = "./studies/my-first-study/CLAUDE.md"
 
 # ---------------------------------------------------------------------------
 # Notifications (optional)
