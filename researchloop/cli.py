@@ -99,26 +99,51 @@ def truncate(text: str | None, length: int = 50) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _api_post(
-    config: Any,
-    path: str,
-    body: dict | None = None,
-) -> dict:
-    """POST to the orchestrator API. Raises ClickException on failure."""
+def _resolve_connection(
+    config: Any | None = None,
+) -> tuple[str, dict[str, str]]:
+    """Resolve orchestrator URL and auth headers.
 
-    url = config.orchestrator_url
+    Checks (in order): config object, saved credentials.
+    Returns ``(base_url, headers)``.
+    """
+    from researchloop.core.credentials import load_credentials
+
+    url: str | None = None
+    secret: str | None = None
+
+    # 1. Config / env vars.
+    if config is not None:
+        url = config.orchestrator_url
+        secret = config.shared_secret
+
+    # 2. Saved credentials (from `researchloop connect`).
+    if not url:
+        creds = load_credentials()
+        if creds:
+            url = creds["url"]
+            secret = secret or creds["shared_secret"]
+
     if not url:
         raise click.ClickException(
-            "orchestrator_url is not set in config or env. "
-            "Set RESEARCHLOOP_ORCHESTRATOR_URL or add it "
-            "to researchloop.toml."
+            "Not connected to an orchestrator. Run:\n  researchloop connect <url>"
         )
 
     headers: dict[str, str] = {}
-    if config.shared_secret:
-        headers["X-Shared-Secret"] = config.shared_secret
+    if secret:
+        headers["X-Shared-Secret"] = secret
 
-    full_url = f"{url.rstrip('/')}{path}"
+    return url.rstrip("/"), headers
+
+
+def _api_post(
+    config: Any | None,
+    path: str,
+    body: dict | None = None,
+) -> dict:
+    """POST to the orchestrator API."""
+    url, headers = _resolve_connection(config)
+    full_url = f"{url}{path}"
     try:
         resp = httpx.post(
             full_url,
@@ -133,21 +158,13 @@ def _api_post(
     except httpx.ConnectError:
         raise click.ClickException(f"Cannot connect to orchestrator at {url}")
     except httpx.TimeoutException:
-        raise click.ClickException(f"Request to orchestrator timed out: {full_url}")
+        raise click.ClickException(f"Request timed out: {full_url}")
 
 
-def _api_get(config: Any, path: str) -> dict:
+def _api_get(config: Any | None, path: str) -> dict:
     """GET from the orchestrator API."""
-
-    url = config.orchestrator_url
-    if not url:
-        raise click.ClickException("orchestrator_url is not set.")
-
-    headers: dict[str, str] = {}
-    if config.shared_secret:
-        headers["X-Shared-Secret"] = config.shared_secret
-
-    full_url = f"{url.rstrip('/')}{path}"
+    url, headers = _resolve_connection(config)
+    full_url = f"{url}{path}"
     try:
         resp = httpx.get(full_url, headers=headers, timeout=30)
         if resp.status_code >= 400:
@@ -157,7 +174,7 @@ def _api_get(config: Any, path: str) -> dict:
     except httpx.ConnectError:
         raise click.ClickException(f"Cannot connect to orchestrator at {url}")
     except httpx.TimeoutException:
-        raise click.ClickException(f"Request to orchestrator timed out: {full_url}")
+        raise click.ClickException(f"Request timed out: {full_url}")
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +190,19 @@ def _load_config(config_path: str | None) -> Any:
         return load_config(config_path)
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc))
+
+
+def _try_load_config(config_path: str | None) -> Any | None:
+    """Try to load config; return None if not found.
+
+    Used by commands that can work with just saved credentials.
+    """
+    from researchloop.core.config import load_config
+
+    try:
+        return load_config(config_path)
+    except FileNotFoundError:
+        return None
 
 
 async def _open_db(config: Any) -> Any:
@@ -284,6 +314,82 @@ def init(path: str) -> None:
     click.echo(f"  Artifacts: {artifacts_dir}")
     click.echo()
     click.echo("Edit researchloop.toml to configure your clusters and studies.")
+
+
+# ---------------------------------------------------------------------------
+# connect / disconnect / status
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("url", required=False)
+def connect(url: str | None) -> None:
+    """Connect the CLI to a remote ResearchLoop orchestrator.
+
+    Saves the URL and shared secret to ~/.config/researchloop/credentials.json.
+    """
+    from researchloop.core.credentials import save_credentials
+
+    if not url:
+        url = click.prompt("Orchestrator URL", type=str)
+
+    url = url.rstrip("/")
+
+    shared_secret = click.prompt("Shared secret", type=str, hide_input=True)
+
+    # Verify the connection works.
+    try:
+        resp = httpx.get(
+            f"{url}/api/studies",
+            headers={"X-Shared-Secret": shared_secret},
+            timeout=10,
+        )
+        if resp.status_code == 401:
+            raise click.ClickException(
+                "Authentication failed — check your shared secret."
+            )
+        if resp.status_code >= 400:
+            raise click.ClickException(
+                f"Server error {resp.status_code}: {resp.text[:200]}"
+            )
+    except httpx.ConnectError:
+        raise click.ClickException(f"Cannot connect to {url}")
+    except httpx.TimeoutException:
+        raise click.ClickException(f"Connection timed out: {url}")
+
+    path = save_credentials(url, shared_secret)
+    click.echo()
+    click.echo(click.style("Connected!", fg="green", bold=True) + f"  {url}")
+    click.echo(click.style(f"  Credentials saved to {path}", dim=True))
+    click.echo()
+
+
+@cli.command()
+def disconnect() -> None:
+    """Disconnect from the remote orchestrator."""
+    from researchloop.core.credentials import clear_credentials
+
+    clear_credentials()
+    click.echo("Disconnected. Credentials removed.")
+
+
+@cli.command()
+def status() -> None:
+    """Show connection status."""
+    from researchloop.core.credentials import load_credentials
+
+    creds = load_credentials()
+    if creds:
+        click.echo(
+            click.style("Connected", fg="green", bold=True) + f"  {creds['url']}"
+        )
+    else:
+        click.echo(
+            click.style("Not connected", fg="yellow", bold=True)
+            + "  Run "
+            + click.style("researchloop connect", bold=True)
+            + " to set up."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -595,7 +701,7 @@ def sprint() -> None:
 
 
 def _sprint_run(config_path: str | None, study_name: str, idea: str) -> None:
-    config = _load_config(config_path)
+    config = _try_load_config(config_path)
     result = _api_post(
         config,
         "/api/sprints",
@@ -763,7 +869,7 @@ def sprint_show(ctx: click.Context, sprint_id: str) -> None:
 
 
 def _sprint_cancel(config_path: str | None, sprint_id: str) -> None:
-    config = _load_config(config_path)
+    config = _try_load_config(config_path)
     _api_post(config, f"/api/sprints/{sprint_id}/cancel")
 
     click.echo(
@@ -794,7 +900,7 @@ def loop() -> None:
 
 
 def _loop_start(config_path: str | None, study_name: str, count: int) -> None:
-    config = _load_config(config_path)
+    config = _try_load_config(config_path)
     result = _api_post(
         config,
         "/api/loops",
