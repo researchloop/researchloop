@@ -11,6 +11,9 @@
 
 set -euo pipefail
 
+# Ensure common user bin dirs are on PATH (SGE doesn't source .bashrc)
+export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
+
 # --- Environment ---
 {% for key, value in environment.items() %}
 export {{ key }}="{{ value }}"
