@@ -621,6 +621,9 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
 
     # -- Slack Events API -----------------------------------------------
 
+    # Track processed event IDs to avoid duplicates.
+    _processed_events: set[str] = set()
+
     @app.post("/api/slack/events")
     async def slack_events(request: Request) -> JSONResponse:
         """Handle Slack Events API callbacks."""
@@ -630,6 +633,16 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         # URL verification challenge
         if body.get("type") == "url_verification":
             return JSONResponse({"challenge": body.get("challenge", "")})
+
+        # Deduplicate retries.
+        event_id = body.get("event_id", "")
+        if event_id in _processed_events:
+            return JSONResponse({"ok": True})
+        if event_id:
+            _processed_events.add(event_id)
+            # Keep set from growing forever.
+            if len(_processed_events) > 1000:
+                _processed_events.clear()
 
         # Signature verification
         slack_cfg = orchestrator.config.slack
@@ -651,15 +664,24 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
             return JSONResponse({"ok": True})
 
         event = body.get("event", {})
-        event_type = event.get("type", "")
 
         # Ignore bot messages to avoid loops.
-        # Check bot_id, subtype, and app_id.
-        if event.get("bot_id") or event.get("subtype"):
+        if event.get("bot_id") or event.get("subtype") or event.get("bot_profile"):
             return JSONResponse({"ok": True})
 
+        # Return 200 immediately so Slack doesn't retry.
+        # Process the event in a background task.
+        import asyncio as _aio
+
+        _aio.create_task(_handle_slack_event(event, slack_cfg))
+        return JSONResponse({"ok": True})
+
+    async def _handle_slack_event(event: dict, slack_cfg: Any) -> None:
+        """Process a Slack event in the background."""
+        event_type = event.get("type", "")
+
         if event_type not in ("app_mention", "message"):
-            return JSONResponse({"ok": True})
+            return
 
         # Check if user is allowed.
         user_id: str = event.get("user", "")
@@ -676,7 +698,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                     "Sorry, you're not authorized to use this bot.",
                     thread_ts=ts,
                 )
-            return JSONResponse({"ok": True})
+            return
 
         text: str = event.get("text", "")
         thread_ts: str = event.get("thread_ts") or event.get("ts", "")
@@ -697,7 +719,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                 channel,
                 slack_cfg.channel_id,
             )
-            return JSONResponse({"ok": True})
+            return
         text_lower = text.lower().strip()
 
         # Handle "auth status" / "login" commands
@@ -725,7 +747,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                         " HPC cluster)."
                     )
                 await notifier._post_message(msg, thread_ts=thread_ts)
-            return JSONResponse({"ok": True})
+            return
 
         # Handle "help" command.
         if text_lower == "help":
@@ -745,7 +767,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                     "• `help` — show this message",
                     thread_ts=thread_ts,
                 )
-            return JSONResponse({"ok": True})
+            return
 
         # Handle "sprint list" command.
         if "sprint list" in text_lower:
@@ -769,7 +791,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                         "Recent sprints:\n" + "\n".join(lines),
                         thread_ts=thread_ts,
                     )
-            return JSONResponse({"ok": True})
+            return
 
         # Handle "sprint run <study> <idea>" commands.
         if "sprint run" in text.lower():
@@ -802,7 +824,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                         f"Failed to start sprint: {exc}",
                         thread_ts=thread_ts,
                     )
-                return JSONResponse({"ok": True})
+                return
 
         # Free-form chat — pass to Claude via ConversationManager.
         cm = orchestrator.conversation_manager
@@ -824,7 +846,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                     thread_ts=thread_ts,
                 )
 
-        return JSONResponse({"ok": True})
+        return
 
     # -- Dashboard HTML routes -----------------------------------------
     from researchloop.dashboard.routes import (
