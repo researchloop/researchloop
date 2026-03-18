@@ -727,7 +727,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
             return JSONResponse({"ok": True})
 
         # Handle "help" command.
-        if text_lower in ("help", "hi", "hello"):
+        if text_lower == "help":
             if slack_cfg and slack_cfg.bot_token:
                 notifier = SlackNotifier(
                     bot_token=slack_cfg.bot_token,

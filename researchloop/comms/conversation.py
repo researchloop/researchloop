@@ -131,7 +131,6 @@ class ConversationManager:
         # Run Claude with restricted tools — web only.
         cmd = [
             "claude",
-            "--dangerously-skip-permissions",
             "-p",
             prompt,
             "--output-format",
