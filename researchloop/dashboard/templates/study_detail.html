@@ -30,7 +30,7 @@
   {% for sp in sprints %}
     <tr>
       <td><a href="/dashboard/sprints/{{ sp.id }}">{{ sp.id }}</a></td>
-      <td><span class="badge badge-{{ sp.status }}">{{ sp.status }}</span></td>
+      <td><span class="badge badge-{{ sp.status.split(' ')[0] }}">{{ sp.status }}</span></td>
       <td>{{ sp.idea[:60] }}{% if sp.idea|length > 60 %}…{% endif %}</td>
       <td class="dim">{{ sp.created_at }}</td>
     </tr>

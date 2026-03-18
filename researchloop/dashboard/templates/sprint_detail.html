@@ -5,7 +5,7 @@
 <div class="card">
   <dl>
     <dt>Study</dt><dd><a href="/dashboard/studies/{{ sprint.study_name }}">{{ sprint.study_name }}</a></dd>
-    <dt>Status</dt><dd><span class="badge badge-{{ sprint.status }}">{{ sprint.status }}</span></dd>
+    <dt>Status</dt><dd><span class="badge badge-{{ sprint.status.split(' ')[0] }}">{{ sprint.status }}</span></dd>
     <dt>Idea</dt><dd>{{ sprint.idea }}</dd>
     <dt>Job ID</dt><dd>{{ sprint.job_id or '—' }}</dd>
     <dt>Directory</dt><dd class="dim">{{ sprint.directory or '—' }}</dd>

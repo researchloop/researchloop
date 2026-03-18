@@ -460,19 +460,47 @@ def add_dashboard_routes(
                                     logger.warning("PDF download failed")
                                     has_pdf = False
 
+                        # Detect current pipeline step from log.
+                        current_step = None
+                        if log_text:
+                            for line in reversed(log_text.split("\n")):
+                                line = line.strip()
+                                if line.startswith(">>> Step:"):
+                                    current_step = line.split(">>> Step:")[1].strip()
+                                    break
+                                if line.startswith("<<<"):
+                                    # Last step finished
+                                    break
+
+                        # Also read findings.md for in-progress.
+                        findings_out, _, _ = await ssh.run(
+                            f"cat {sprint_path}/findings.md 2>/dev/null || true"
+                        )
+
+                        # Build update dict.
                         update_kw: dict[str, Any] = {}
+
+                        # Update status: running with step, or terminal.
+                        if real_status == "running":
+                            step_label = (
+                                f"running ({current_step})"
+                                if current_step
+                                else "running"
+                            )
+                            update_kw["status"] = step_label
+                        elif real_status in terminal and cur not in terminal:
+                            update_kw["status"] = real_status
+
                         if summary_out.strip():
                             update_kw["summary"] = summary_out.strip()
                         if log_text:
-                            update_kw["error"] = (
-                                f"[{real_status}] Log:\n{log_text}"
-                                if real_status in terminal
-                                else None
-                            )
+                            update_kw["error"] = f"[{real_status}] Log:\n{log_text}"
 
                         meta_dict: dict[str, Any] = {}
                         if report_out.strip():
                             meta_dict["report"] = report_out.strip()
+                        elif findings_out.strip():
+                            meta_dict["report"] = findings_out.strip()
                         if has_pdf:
                             meta_dict["has_pdf"] = True
                         if meta_dict:

@@ -31,7 +31,7 @@
     <tr>
       <td><a href="/dashboard/sprints/{{ sp.id }}">{{ sp.id }}</a></td>
       <td><a href="/dashboard/studies/{{ sp.study_name }}">{{ sp.study_name }}</a></td>
-      <td><span class="badge badge-{{ sp.status }}">{{ sp.status }}</span></td>
+      <td><span class="badge badge-{{ sp.status.split(' ')[0] }}">{{ sp.status }}</span></td>
       <td>{{ sp.idea[:50] }}{% if sp.idea|length > 50 %}…{% endif %}</td>
       <td class="dim">{{ sp.created_at }}</td>
     </tr>
