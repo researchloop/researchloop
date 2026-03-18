@@ -475,9 +475,9 @@ def add_dashboard_routes(
                                     # Last step finished
                                     break
 
-                        # Read generated idea (auto-loop sprints).
+                        # Read idea.txt from cluster.
                         idea_out, _, _ = await ssh.run(
-                            f"cat {sprint_path}/generated_idea.txt 2>/dev/null || true"
+                            f"cat {sprint_path}/idea.txt 2>/dev/null || true"
                         )
 
                         # Also read findings.md for in-progress.
@@ -488,13 +488,11 @@ def add_dashboard_routes(
                         # Build update dict.
                         update_kw: dict[str, Any] = {}
 
-                        # Update idea if generated.
+                        # Update idea from idea.txt if it differs.
+                        idea_text = idea_out.strip()
                         cur_idea = sprint.get("idea", "")
-                        if idea_out.strip() and (
-                            cur_idea.startswith("[loop")
-                            or cur_idea.startswith("[auto-loop")
-                        ):
-                            update_kw["idea"] = idea_out.strip()[:200]
+                        if idea_text and idea_text != cur_idea:
+                            update_kw["idea"] = idea_text[:500]
 
                         # Update status: running with step, or terminal.
                         if real_status == "running":

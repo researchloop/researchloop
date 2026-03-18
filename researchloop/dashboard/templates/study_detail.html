@@ -31,7 +31,7 @@
     <tr>
       <td><a href="/dashboard/sprints/{{ sp.id }}">{{ sp.id }}</a></td>
       <td><span class="badge badge-{{ sp.status.split(' ')[0] }}">{{ sp.status.split(' ')[0] }}</span>{% if '(' in sp.status %} <span class="dim" style="font-size:0.75rem">{{ sp.status.split('(')[1].rstrip(')') }}</span>{% endif %}</td>
-      <td>{% if sp.loop_id or sp.idea.startswith('[loop') or sp.idea.startswith('[auto-loop') %}<span title="Auto-loop sprint" style="font-size:0.75rem">&#128260;</span> {% endif %}{{ sp.idea[:60] }}{% if sp.idea|length > 60 %}…{% endif %}</td>
+      <td>{% if sp.loop_id %}<span title="Auto-loop sprint" style="font-size:0.75rem">&#128260;</span> {% endif %}{{ sp.idea[:60] }}{% if sp.idea|length > 60 %}…{% endif %}</td>
       <td class="dim">{{ sp.created_at }}</td>
       <td>
         {% if sp.status.startswith('running') or sp.status == 'submitted' %}

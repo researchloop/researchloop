@@ -279,9 +279,10 @@ class SprintManager:
             }
         )
 
-        # If this is an auto-loop sprint, add the idea generator
-        # prompt so the job generates its own idea on the cluster.
-        if idea.startswith("[loop ") or idea.startswith("[auto-loop "):
+        # If this sprint belongs to an auto-loop, add the idea
+        # generator prompt so the job generates its own idea.
+        is_loop_sprint = bool(sprint.get("loop_id"))
+        if is_loop_sprint:
             # Find the loop for extra context.
             loop_context = ""
             all_loops = await queries.list_auto_loops(self.db)
@@ -384,6 +385,12 @@ class SprintManager:
                 len(context_parts),
                 sprint_remote_dir,
             )
+
+        # Write idea.txt so it's always available on cluster.
+        encoded_idea = _b64encode(idea)
+        await ssh.run(
+            f"echo '{encoded_idea}' | base64 -d > {sprint_remote_dir}/idea.txt"
+        )
 
         # Write the job script via base64.
         # Prompts are embedded in the script as base64.

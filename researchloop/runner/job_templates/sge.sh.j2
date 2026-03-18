@@ -117,7 +117,7 @@ if [ -f "$SPRINT_DIR/.researchloop/prompt_generate_idea.md" ]; then
     GENERATED_IDEA=$($CLAUDE_CMD -p "$(cat "$SPRINT_DIR/.researchloop/prompt_generate_idea.md")" 2>&1) || true
     if [ -n "$GENERATED_IDEA" ]; then
         echo "Generated idea: $GENERATED_IDEA"
-        echo "$GENERATED_IDEA" > "$SPRINT_DIR/generated_idea.txt"
+        echo "$GENERATED_IDEA" > "$SPRINT_DIR/idea.txt"
         python3 -c "
 import sys
 prompt = open('$SPRINT_DIR/.researchloop/prompt_research.md').read()
