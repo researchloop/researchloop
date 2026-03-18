@@ -801,21 +801,25 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                     )
                 return JSONResponse({"ok": True})
 
-        # Unknown command — reply with help text.
-        if slack_cfg and slack_cfg.bot_token:
+        # Free-form chat — pass to Claude via ConversationManager.
+        cm = orchestrator.conversation_manager
+        if cm is not None and slack_cfg and slack_cfg.bot_token:
             notifier = SlackNotifier(
                 bot_token=slack_cfg.bot_token,
                 channel_id=channel,
             )
-            help_text = (
-                "Available commands:\n"
-                "• `sprint run <study> <idea>` — start a sprint\n"
-                "• `sprint list` — list recent sprints\n"
-                "• `loop start <study> <count>` — start an auto-loop\n"
-                "• `auth status` — check Claude auth\n"
-                "• `help` — show this message"
-            )
-            await notifier._post_message(help_text, thread_ts=thread_ts)
+            try:
+                response_text = await cm.handle_message(
+                    thread_ts=thread_ts,
+                    user_text=text,
+                )
+                await notifier._post_message(response_text, thread_ts=thread_ts)
+            except Exception as exc:
+                logger.exception("Chat handler failed: %s", exc)
+                await notifier._post_message(
+                    "Sorry, something went wrong. Try `help` for available commands.",
+                    thread_ts=thread_ts,
+                )
 
         return JSONResponse({"ok": True})
 

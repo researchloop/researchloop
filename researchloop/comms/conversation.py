@@ -53,6 +53,49 @@ class ConversationManager:
             (session_id, thread_ts),
         )
 
+    async def _build_context(self) -> str:
+        """Build context about studies and recent sprints."""
+        parts = [
+            "You are the ResearchLoop assistant. "
+            "You help researchers plan and manage "
+            "automated research sprints on HPC clusters.",
+            "",
+            "The user can ask you to:",
+            "- Discuss research ideas for upcoming sprints",
+            "- Review results from completed sprints",
+            "- Suggest what to investigate next",
+            "- Help formulate sprint ideas",
+            "",
+        ]
+
+        # Add study info.
+        studies = await self.db.fetch_all(
+            "SELECT name, cluster, description FROM studies"
+        )
+        if studies:
+            parts.append("Available studies:")
+            for s in studies:
+                desc = s.get("description") or ""
+                parts.append(f"- {s['name']}: {desc}")
+            parts.append("")
+
+        # Add recent sprint summaries.
+        sprints = await self.db.fetch_all(
+            "SELECT id, study_name, idea, status, summary "
+            "FROM sprints ORDER BY created_at DESC LIMIT 10"
+        )
+        if sprints:
+            parts.append("Recent sprints:")
+            for sp in sprints:
+                idea = (sp.get("idea") or "")[:80]
+                summary = (sp.get("summary") or "")[:100]
+                parts.append(f"- {sp['id']} [{sp['status']}] {idea}")
+                if summary:
+                    parts.append(f"  Summary: {summary}")
+            parts.append("")
+
+        return "\n".join(parts)
+
     async def handle_message(
         self,
         thread_ts: str,
@@ -68,8 +111,12 @@ class ConversationManager:
         session = await self.get_session(thread_ts)
         resume_id = session["session_id"] if session else None
 
-        # Build the prompt
+        # Build the prompt with system context.
         prompt = user_text
+        if session is None:
+            # First message — add context about ResearchLoop.
+            context = await self._build_context()
+            prompt = f"{context}\n\nUser message: {user_text}"
 
         # Run Claude CLI
         cmd = [
