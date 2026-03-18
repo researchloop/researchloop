@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ loop.id }} — ResearchLoop{% endblock %}
+{% block content %}
+<h2>Loop {{ loop.id }}</h2>
+<div class="card">
+  <dl>
+    <dt>Study</dt><dd><a href="/dashboard/studies/{{ loop.study_name }}">{{ loop.study_name }}</a></dd>
+    <dt>Status</dt><dd><span class="badge badge-{{ loop.status }}">{{ loop.status }}</span></dd>
+    <dt>Progress</dt><dd>{{ loop.completed_count }}/{{ loop.total_count }}</dd>
+    <dt>Current Sprint</dt><dd>{% if loop.current_sprint_id %}<a href="/dashboard/sprints/{{ loop.current_sprint_id }}">{{ loop.current_sprint_id }}</a>{% else %}—{% endif %}</dd>
+    <dt>Created</dt><dd>{{ loop.created_at }}</dd>
+    {% if loop.stopped_at %}<dt>Stopped</dt><dd>{{ loop.stopped_at }}</dd>{% endif %}
+  </dl>
+  {% if loop.status in ('running', 'pending') %}
+  <div class="actions">
+    <form method="post" action="/dashboard/loops/{{ loop.id }}/stop">
+      <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Stop this loop?')">Stop loop</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% if context %}
+<h3>Idea Generation Context</h3>
+<div class="card report-content">{{ context|markdown|safe }}</div>
+{% endif %}
+<h3>Sprints</h3>
+<table>
+  <thead><tr><th>ID</th><th>Status</th><th>Idea</th><th>Summary</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for sp in sprints %}
+    <tr>
+      <td><a href="/dashboard/sprints/{{ sp.id }}">{{ sp.id }}</a></td>
+      <td><span class="badge badge-{{ sp.status.split(' ')[0] }}">{{ sp.status.split(' ')[0] }}</span>{% if '(' in sp.status %} <span class="dim" style="font-size:0.75rem">{{ sp.status.split('(')[1].rstrip(')') }}</span>{% endif %}</td>
+      <td>{{ sp.idea[:60] }}{% if sp.idea|length > 60 %}…{% endif %}</td>
+      <td class="dim">{{ (sp.summary or '')[:80] }}{% if (sp.summary or '')|length > 80 %}…{% endif %}</td>
+      <td class="dim">{{ sp.created_at }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

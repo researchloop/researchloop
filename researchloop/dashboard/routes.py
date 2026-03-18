@@ -475,6 +475,11 @@ def add_dashboard_routes(
                                     # Last step finished
                                     break
 
+                        # Read generated idea (auto-loop sprints).
+                        idea_out, _, _ = await ssh.run(
+                            f"cat {sprint_path}/generated_idea.txt 2>/dev/null || true"
+                        )
+
                         # Also read findings.md for in-progress.
                         findings_out, _, _ = await ssh.run(
                             f"cat {sprint_path}/findings.md 2>/dev/null || true"
@@ -482,6 +487,12 @@ def add_dashboard_routes(
 
                         # Build update dict.
                         update_kw: dict[str, Any] = {}
+
+                        # Update idea if generated.
+                        if idea_out.strip() and sprint.get("idea", "").startswith(
+                            "[loop"
+                        ):
+                            update_kw["idea"] = idea_out.strip()[:200]
 
                         # Update status: running with step, or terminal.
                         if real_status == "running":
@@ -609,6 +620,59 @@ def add_dashboard_routes(
         return templates.TemplateResponse(
             "loops.html",
             _ctx(request, authenticated=True, loops=loops),
+        )
+
+    @app.get("/dashboard/loops/{loop_id}")
+    async def dashboard_loop_detail(loop_id: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.db is not None
+
+        loop = await queries.get_auto_loop(orchestrator.db, loop_id)
+        if loop is None:
+            raise HTTPException(status_code=404, detail="Loop not found")
+
+        # Get all sprints that were part of this loop.
+        # Match by study + idea containing the loop ID.
+        all_sprints = await queries.list_sprints(
+            orchestrator.db,
+            study_name=loop["study_name"],
+            limit=200,
+        )
+        loop_sprints = [sp for sp in all_sprints if loop_id in (sp.get("idea") or "")]
+
+        # Extract context from metadata_json.
+        context = ""
+        meta = loop.get("metadata_json")
+        if meta:
+            try:
+                context = json.loads(meta).get("context", "")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        return templates.TemplateResponse(
+            "loop_detail.html",
+            _ctx(
+                request,
+                authenticated=True,
+                loop=loop,
+                sprints=loop_sprints,
+                context=context,
+            ),
+        )
+
+    @app.post("/dashboard/loops/{loop_id}/stop")
+    async def dashboard_loop_stop(loop_id: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.auto_loop is not None
+        try:
+            await orchestrator.auto_loop.stop(loop_id)
+        except Exception as exc:
+            logger.warning("Loop stop failed: %s", exc)
+        return RedirectResponse(
+            f"/dashboard/loops/{loop_id}",
+            status_code=303,
         )
 
     # ----------------------------------------------------------

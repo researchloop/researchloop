@@ -7,7 +7,7 @@
   <tbody>
   {% for lp in loops %}
     <tr>
-      <td>{{ lp.id }}</td>
+      <td><a href="/dashboard/loops/{{ lp.id }}">{{ lp.id }}</a></td>
       <td><a href="/dashboard/studies/{{ lp.study_name }}">{{ lp.study_name }}</a></td>
       <td><span class="badge badge-{{ lp.status }}">{{ lp.status }}</span></td>
       <td>{{ lp.completed_count }}/{{ lp.total_count }}</td>

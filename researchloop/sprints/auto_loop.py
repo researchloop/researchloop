@@ -100,9 +100,7 @@ class AutoLoopController:
         )
 
         # First sprint — idea will be auto-generated on the cluster.
-        sprint = await self.sprint_manager.run_sprint(
-            study_name, f"[loop {loop_id}]"
-        )
+        sprint = await self.sprint_manager.run_sprint(study_name, f"[loop {loop_id}]")
 
         await queries.update_auto_loop(
             self.db,
