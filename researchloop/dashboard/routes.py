@@ -435,6 +435,12 @@ def add_dashboard_routes(
                         )
                         log_text = stdout.strip()
 
+                        # Read sprint log for detailed progress.
+                        sprint_log_out, _, _ = await ssh.run(
+                            f"tail -100 {sprint_path}/sprint_log.txt"
+                            f" 2>/dev/null || true"
+                        )
+
                         # Read summary and report from cluster.
                         summary_out, _, _ = await ssh.run(
                             f"cat {sprint_path}/summary.txt 2>/dev/null || true"
@@ -507,8 +513,12 @@ def add_dashboard_routes(
 
                         if summary_out.strip():
                             update_kw["summary"] = summary_out.strip()
-                        if log_text:
-                            update_kw["error"] = f"[{real_status}] Log:\n{log_text}"
+
+                        # Prefer sprint_log.txt over slurm output.
+                        sprint_log = sprint_log_out.strip()
+                        display_log = sprint_log or log_text
+                        if display_log:
+                            update_kw["error"] = f"[{real_status}] Log:\n{display_log}"
 
                         meta_dict: dict[str, Any] = {}
                         if report_out.strip():

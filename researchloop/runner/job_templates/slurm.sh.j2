@@ -42,11 +42,21 @@ echo "=== ResearchLoop Sprint $SPRINT_ID ==="
 echo "Study: $STUDY_NAME"
 echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# --- Logging ---
+LOG_FILE="$SPRINT_DIR/sprint_log.txt"
+touch "$LOG_FILE"
+
+log() {
+    local msg="[$(date -u +%H:%M:%S)] $1"
+    echo "$msg" | tee -a "$LOG_FILE"
+}
+
 # --- Helper: run claude and extract session ID ---
 SESSION_ID=""
 run_step() {
     local prompt_file="$1"
     local step_name="$2"
+    log ">>> Starting step: $step_name"
     echo ">>> Step: $step_name"
 
     local cmd=($CLAUDE_CMD -p "$(cat "$prompt_file")" --output-format json)
@@ -54,27 +64,44 @@ run_step() {
         cmd+=(--resume "$SESSION_ID")
     fi
 
-    local output
-    output=$("${cmd[@]}" 2>&1) || {
-        echo "ERROR: Claude failed on step $step_name (exit $?)"
-        echo "$output" | tail -20
+    # Run claude, streaming stderr to log while capturing stdout.
+    local output_file="$SPRINT_DIR/.researchloop/${step_name}_output.json"
+    "${cmd[@]}" > "$output_file" 2> >(tee -a "$LOG_FILE" >&2) || {
+        local rc=$?
+        log "ERROR: Claude failed on step $step_name (exit $rc)"
+        cat "$output_file" | tail -20 >> "$LOG_FILE"
         return 1
     }
 
-    # Extract session_id from JSON output
-    local new_sid
-    new_sid=$(echo "$output" | python3 -c "
+    local output
+    output=$(cat "$output_file")
+
+    # Extract session_id and result text from JSON output
+    python3 -c "
 import sys, json
 try:
-    d = json.load(sys.stdin)
-    print(d.get('session_id', ''))
-except:
-    pass
-" 2>/dev/null || true)
-    if [ -n "$new_sid" ]; then
-        SESSION_ID="$new_sid"
+    d = json.loads(sys.argv[1])
+    sid = d.get('session_id', '')
+    result = d.get('result', '') or d.get('text', '') or ''
+    # Write session ID
+    if sid:
+        open('$SPRINT_DIR/.researchloop/session_id', 'w').write(sid)
+    # Append result summary to log
+    preview = result[:500] if result else '(no text output)'
+    with open('$LOG_FILE', 'a') as f:
+        f.write(f'  Output: {len(result)} chars\n')
+        f.write(f'  Preview: {preview}\n')
+except Exception as e:
+    with open('$LOG_FILE', 'a') as f:
+        f.write(f'  JSON parse error: {e}\n')
+" "$output" 2>/dev/null || true
+
+    # Read session ID
+    if [ -f "$SPRINT_DIR/.researchloop/session_id" ]; then
+        SESSION_ID=$(cat "$SPRINT_DIR/.researchloop/session_id")
     fi
 
+    log "<<< Step $step_name complete"
     echo "<<< Step $step_name complete"
 }
 
