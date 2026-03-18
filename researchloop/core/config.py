@@ -67,6 +67,7 @@ class SlackConfig:
     bot_token: str = ""
     signing_secret: str = ""
     channel_id: str | None = None
+    allowed_user_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -152,10 +153,14 @@ def _parse_config(data: dict) -> Config:
     slack = None
     if "slack" in data:
         s = data["slack"]
+        allowed = s.get("allowed_user_ids", [])
+        if isinstance(allowed, str):
+            allowed = [allowed]
         slack = SlackConfig(
             bot_token=s.get("bot_token", ""),
             signing_secret=s.get("signing_secret", ""),
             channel_id=s.get("channel_id"),
+            allowed_user_ids=allowed,
         )
 
     ntfy = None
@@ -258,6 +263,7 @@ def _apply_env_overrides(config: Config) -> None:
         RESEARCHLOOP_SLACK_BOT_TOKEN
         RESEARCHLOOP_SLACK_SIGNING_SECRET
         RESEARCHLOOP_SLACK_CHANNEL_ID
+        RESEARCHLOOP_SLACK_ALLOWED_USER_IDS
         RESEARCHLOOP_NTFY_URL
         RESEARCHLOOP_NTFY_TOPIC
         RESEARCHLOOP_DASHBOARD_PASSWORD
@@ -288,6 +294,12 @@ def _apply_env_overrides(config: Config) -> None:
         if config.slack is None:
             config.slack = SlackConfig()
         config.slack.channel_id = v
+    if v := _env("SLACK_ALLOWED_USER_IDS"):
+        if config.slack is None:
+            config.slack = SlackConfig()
+        config.slack.allowed_user_ids = [
+            uid.strip() for uid in v.split(",") if uid.strip()
+        ]
 
     # ntfy
     if _env("NTFY_TOPIC"):

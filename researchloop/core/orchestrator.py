@@ -657,6 +657,16 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         if event_type not in ("app_mention", "message"):
             return JSONResponse({"ok": True})
 
+        # Check if user is allowed.
+        user_id: str = event.get("user", "")
+        allowed = slack_cfg.allowed_user_ids if slack_cfg else []
+        if allowed and user_id not in allowed:
+            logger.debug(
+                "Ignoring Slack message from unauthorized user %s",
+                user_id,
+            )
+            return JSONResponse({"ok": True})
+
         text: str = event.get("text", "")
         thread_ts: str = event.get("thread_ts") or event.get("ts", "")
         channel: str = event.get("channel", "")
