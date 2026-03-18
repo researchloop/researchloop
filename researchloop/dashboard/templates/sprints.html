@@ -25,7 +25,7 @@
 {% endif %}
 
 <table>
-  <thead><tr><th>ID</th><th>Study</th><th>Status</th><th>Idea</th><th>Created</th></tr></thead>
+  <thead><tr><th>ID</th><th>Study</th><th>Status</th><th>Idea</th><th>Created</th><th></th></tr></thead>
   <tbody>
   {% for sp in sprints %}
     <tr>
@@ -34,6 +34,13 @@
       <td><span class="badge badge-{{ sp.status.split(' ')[0] }}">{{ sp.status.split(' ')[0] }}</span>{% if '(' in sp.status %} <span class="dim" style="font-size:0.75rem">{{ sp.status.split('(')[1].rstrip(')') }}</span>{% endif %}</td>
       <td>{{ sp.idea[:50] }}{% if sp.idea|length > 50 %}…{% endif %}</td>
       <td class="dim">{{ sp.created_at }}</td>
+      <td>
+        {% if sp.status.startswith('running') or sp.status == 'submitted' %}
+        <form method="post" action="/dashboard/sprints/{{ sp.id }}/refresh" style="display:inline" onsubmit="this.querySelector('.refresh-btn').innerHTML='<span class=spinning>&#8635;</span>'">
+          <button type="submit" class="refresh-btn" title="Refresh status">&#8635;</button>
+        </form>
+        {% endif %}
+      </td>
     </tr>
   {% endfor %}
   </tbody>

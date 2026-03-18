@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ sprint.id }} — ResearchLoop{% endblock %}
+{% block head %}
+{% if sprint.status.startswith('running') or sprint.status == 'submitted' %}
+<meta http-equiv="refresh" content="30;url=/dashboard/sprints/{{ sprint.id }}/refresh">
+{% endif %}
+{% endblock %}
 {% block content %}
 <h2>Sprint {{ sprint.id }}</h2>
 <div class="card">

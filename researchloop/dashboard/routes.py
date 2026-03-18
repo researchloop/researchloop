@@ -355,7 +355,10 @@ def add_dashboard_routes(
     # Sprint actions
     # ----------------------------------------------------------
 
-    @app.post("/dashboard/sprints/{sprint_id}/refresh")
+    @app.api_route(
+        "/dashboard/sprints/{sprint_id}/refresh",
+        methods=["GET", "POST"],
+    )
     async def dashboard_sprint_refresh(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
         """Check real job status on the cluster and update."""
         if redir := await _gate(request):
