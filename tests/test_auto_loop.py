@@ -158,7 +158,7 @@ class TestOnSprintCompleteStartsNext:
         call_args = ctrl.sprint_manager.run_sprint.call_args
         assert call_args[0][0] == "test-study"
         idea_text = call_args[0][1]
-        assert "[auto-loop loop-ccc]" in idea_text
+        assert "[loop loop-ccc]" in idea_text
 
         # current_sprint_id updated.
         loop = await queries.get_auto_loop(

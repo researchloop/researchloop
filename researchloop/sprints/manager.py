@@ -281,7 +281,7 @@ class SprintManager:
 
         # If this is an auto-loop sprint, add the idea generator
         # prompt so the job generates its own idea on the cluster.
-        if idea.startswith("[auto-loop"):
+        if idea.startswith("[loop "):
             # Find the loop for extra context.
             loop_context = ""
             all_loops = await queries.list_auto_loops(self.db)

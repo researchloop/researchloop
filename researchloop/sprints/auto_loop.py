@@ -101,7 +101,7 @@ class AutoLoopController:
 
         # First sprint — idea will be auto-generated on the cluster.
         sprint = await self.sprint_manager.run_sprint(
-            study_name, f"[auto-loop {loop_id}]"
+            study_name, f"[loop {loop_id}]"
         )
 
         await queries.update_auto_loop(
@@ -172,7 +172,7 @@ class AutoLoopController:
         # on the cluster where Claude is authenticated.
         sprint = await self.sprint_manager.run_sprint(
             study_name,
-            f"[auto-loop {loop_id}]",
+            f"[loop {loop_id}]",
         )
 
         await queries.update_auto_loop(
