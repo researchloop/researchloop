@@ -586,6 +586,11 @@ class SprintManager:
             data_json=event_data,
         )
 
+        # Try to fetch the PDF for the notification.
+        pdf_local: str | None = None
+        if status == SprintStatus.COMPLETED.value and sprint:
+            pdf_local = await self._fetch_pdf(sprint)
+
         # Notify via configured channels.
         if self.notification_router is not None:
             if status == SprintStatus.COMPLETED.value:
@@ -593,6 +598,7 @@ class SprintManager:
                     sprint_id=sprint_id,
                     study_name=study_name,
                     summary=summary or "No summary provided",
+                    pdf_path=pdf_local,
                 )
             elif status == SprintStatus.FAILED.value:
                 await self.notification_router.notify_sprint_failed(
@@ -601,4 +607,56 @@ class SprintManager:
                     error=error or "Unknown error",
                 )
 
-        logger.info("Sprint %s completion handled: status=%s", sprint_id, status)
+        logger.info(
+            "Sprint %s completion handled: status=%s",
+            sprint_id,
+            status,
+        )
+
+    async def _fetch_pdf(self, sprint: dict) -> str | None:
+        """Try to download report.pdf from the cluster."""
+        try:
+            study_name = sprint["study_name"]
+            if self.study_manager is None:
+                return None
+            cluster_cfg = await self.study_manager.get_cluster_config(study_name)
+            # Resolve sprint path.
+            study_cfg = None
+            for s in self.config.studies:
+                if s.name == study_name:
+                    study_cfg = s
+                    break
+            if study_cfg and study_cfg.sprints_dir:
+                sbase = study_cfg.sprints_dir
+            else:
+                sbase = f"{cluster_cfg.working_dir}/{study_name}"
+            sp_dir = sprint.get("directory", "")
+            remote_pdf = f"{sbase}/{sp_dir}/report.pdf"
+
+            conn = {
+                "host": cluster_cfg.host,
+                "port": cluster_cfg.port,
+                "user": cluster_cfg.user,
+                "key_path": cluster_cfg.key_path,
+            }
+            ssh = await self.ssh_manager.get_connection(conn)
+
+            # Check if PDF exists.
+            _, _, rc = await ssh.run(f"test -f {remote_pdf}")
+            if rc != 0:
+                return None
+
+            # Download to local artifact dir.
+            art_dir = Path(self.config.artifact_dir) / sprint["id"]
+            art_dir.mkdir(parents=True, exist_ok=True)
+            local_pdf = str(art_dir / "report.pdf")
+            await ssh.download_file(remote_pdf, local_pdf)
+            logger.info("Downloaded PDF for %s", sprint["id"])
+            return local_pdf
+        except Exception:
+            logger.debug(
+                "PDF fetch failed for %s",
+                sprint.get("id"),
+                exc_info=True,
+            )
+            return None

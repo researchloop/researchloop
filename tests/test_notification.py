@@ -23,7 +23,9 @@ class TestNotificationRouter:
         router.add_notifier(n1)
 
         await router.notify_sprint_completed("sp-001", "study", "summary")
-        n1.notify_sprint_completed.assert_called_once_with("sp-001", "study", "summary")
+        n1.notify_sprint_completed.assert_called_once_with(
+            "sp-001", "study", "summary", pdf_path=None
+        )
 
     async def test_fan_out_failed(self):
         router = NotificationRouter()

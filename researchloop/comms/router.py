@@ -41,11 +41,17 @@ class NotificationRouter:
                 )
 
     async def notify_sprint_completed(
-        self, sprint_id: str, study_name: str, summary: str
+        self,
+        sprint_id: str,
+        study_name: str,
+        summary: str,
+        pdf_path: str | None = None,
     ) -> None:
         for notifier in self._notifiers:
             try:
-                await notifier.notify_sprint_completed(sprint_id, study_name, summary)
+                await notifier.notify_sprint_completed(
+                    sprint_id, study_name, summary, pdf_path=pdf_path
+                )
             except Exception:
                 logger.exception(
                     "Error in %s.notify_sprint_completed",

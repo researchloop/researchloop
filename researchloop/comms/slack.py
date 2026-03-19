@@ -61,6 +61,44 @@ class SlackNotifier(BaseNotifier):
                 logger.error("Slack API error: %s", data.get("error"))
             return data
 
+    async def _upload_file(
+        self,
+        filepath: str,
+        filename: str,
+        channel: str | None = None,
+        initial_comment: str = "",
+    ) -> dict[str, Any]:
+        """Upload a file to a Slack channel."""
+        ch = channel or self.channel_id
+        if not ch:
+            return {}
+        try:
+            with open(filepath, "rb") as f:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        f"{_SLACK_API}/files.uploadV2",
+                        headers={
+                            "Authorization": (f"Bearer {self.bot_token}"),
+                        },
+                        data={
+                            "channel_id": ch,
+                            "filename": filename,
+                            "initial_comment": initial_comment,
+                        },
+                        files={"file": (filename, f)},
+                        timeout=30.0,
+                    )
+                    data = resp.json()
+                    if not data.get("ok"):
+                        logger.error(
+                            "Slack file upload error: %s",
+                            data.get("error"),
+                        )
+                    return data
+        except Exception:
+            logger.exception("Failed to upload file to Slack")
+            return {}
+
     def _link(self, sprint_id: str) -> str:
         if self.dashboard_url:
             url = self.dashboard_url.rstrip("/")
@@ -83,6 +121,7 @@ class SlackNotifier(BaseNotifier):
         sprint_id: str,
         study_name: str,
         summary: str,
+        pdf_path: str | None = None,
     ) -> None:
         link = self._link(sprint_id)
         await self._post_message(
@@ -90,6 +129,12 @@ class SlackNotifier(BaseNotifier):
             f"*Study:* {study_name}\n"
             f"*Summary:* {summary}"
         )
+        if pdf_path:
+            await self._upload_file(
+                pdf_path,
+                f"{sprint_id}-report.pdf",
+                initial_comment=f"Report for sprint {sprint_id}",
+            )
 
     async def notify_sprint_failed(
         self,

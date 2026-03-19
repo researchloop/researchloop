@@ -71,7 +71,11 @@ class NtfyNotifier(BaseNotifier):
         )
 
     async def notify_sprint_completed(
-        self, sprint_id: str, study_name: str, summary: str
+        self,
+        sprint_id: str,
+        study_name: str,
+        summary: str,
+        pdf_path: str | None = None,
     ) -> None:
         await self._send(
             message=f"Sprint {sprint_id} completed\nSummary: {summary}",
