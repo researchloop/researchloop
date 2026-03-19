@@ -31,7 +31,7 @@
     <tr>
       <td><a href="/dashboard/sprints/{{ sp.id }}">{{ sp.id }}</a></td>
       <td><span class="badge badge-{{ sp.status.split(' ')[0] }}">{{ sp.status.split(' ')[0] }}</span>{% if '(' in sp.status %} <span class="dim" style="font-size:0.75rem">{{ sp.status.split('(')[1].rstrip(')') }}</span>{% endif %}</td>
-      <td>{% if sp.idea %}{{ sp.idea[:60] }}{% if sp.idea|length > 60 %}…{% endif %}{% elif sp.loop_id %}<span class="dim" style="font-style:italic">auto-generating idea...</span>{% endif %}</td>
+      <td>{% if sp.idea %}{{ sp.idea[:60] }}{% if sp.idea|length > 60 %}…{% endif %}{% elif sp.loop_id and sp.status not in ('completed', 'failed', 'cancelled') %}<span class="dim" style="font-style:italic">auto-generating idea...</span>{% elif sp.summary %}<span class="dim">{{ sp.summary[:60] }}{% if sp.summary|length > 60 %}…{% endif %}</span>{% endif %}</td>
       <td>{% if sp.loop_id %}<a href="/dashboard/loops/{{ sp.loop_id }}" class="dim" style="font-size:0.85rem">{{ sp.loop_id }}</a>{% endif %}</td>
       <td class="dim">{{ sp.created_at }}</td>
       <td>
