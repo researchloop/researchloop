@@ -120,7 +120,8 @@ async def run_migrations(db: Database) -> None:
     await _add_column_if_missing(db, "auto_loops", "metadata_json", "TEXT")
     await _add_column_if_missing(db, "slack_sessions", "messages_json", "TEXT")
 
-    # Make idea column nullable (SQLite requires table rebuild).
+    # Make idea column nullable — already applied, skip on future runs.
+    # The migration checks if the column is still NOT NULL before acting.
     await _make_idea_nullable(db)
 
     await db._conn.commit()
@@ -133,13 +134,23 @@ async def _make_idea_nullable(db: Database) -> None:
     # Recover from a previously failed migration.
     tables = await db._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     table_names = {r[0] for r in await tables.fetchall()}
-    if "_sprints_old" in table_names and "sprints" not in table_names:
-        # Previous migration failed mid-way. Restore.
-        await db._conn.execute("ALTER TABLE _sprints_old RENAME TO sprints")
-    elif "_sprints_old" in table_names and "sprints" in table_names:
-        # Both exist — drop the old one.
+    if "_sprints_old" in table_names:
         await db._conn.execute("PRAGMA foreign_keys=OFF")
-        await db._conn.execute("DROP TABLE _sprints_old")
+        if "sprints" not in table_names:
+            await db._conn.execute("ALTER TABLE _sprints_old RENAME TO sprints")
+        else:
+            # Keep whichever has more rows.
+            old_n = (
+                await db._conn.execute("SELECT count(*) FROM _sprints_old")
+            ).fetchone()
+            new_n = (await db._conn.execute("SELECT count(*) FROM sprints")).fetchone()
+            old_count = old_n[0] if old_n else 0
+            new_count = new_n[0] if new_n else 0
+            if old_count > new_count:
+                await db._conn.execute("DROP TABLE sprints")
+                await db._conn.execute("ALTER TABLE _sprints_old RENAME TO sprints")
+            else:
+                await db._conn.execute("DROP TABLE _sprints_old")
         await db._conn.execute("PRAGMA foreign_keys=ON")
 
     cursor = await db._conn.execute("PRAGMA table_info(sprints)")
