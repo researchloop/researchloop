@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 from researchloop.core.models import Sprint, SprintStatus
 from researchloop.db import queries
