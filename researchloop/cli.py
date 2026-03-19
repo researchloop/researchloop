@@ -373,7 +373,7 @@ def connect(url: str | None) -> None:
             default=default_url,
         )
 
-    url = url.rstrip("/")
+    url = (url or "").rstrip("/")
 
     password = click.prompt("Password", type=str, hide_input=True)
 

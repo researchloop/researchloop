@@ -60,7 +60,7 @@ class Sprint:
 
     id: str
     study_name: str
-    idea: str
+    idea: str | None
     status: SprintStatus = SprintStatus.PENDING
     job_id: str | None = None
     directory: str | None = None

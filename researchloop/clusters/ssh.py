@@ -78,8 +78,8 @@ class SSHConnection:
             )
             raise
 
-        stdout = result.stdout or ""
-        stderr = result.stderr or ""
+        stdout = str(result.stdout or "")
+        stderr = str(result.stderr or "")
         exit_code = result.exit_status if result.exit_status is not None else -1
 
         logger.debug("Command on %s finished with exit_code=%d", self.host, exit_code)

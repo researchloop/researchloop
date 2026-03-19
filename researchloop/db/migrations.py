@@ -140,10 +140,10 @@ async def _make_idea_nullable(db: Database) -> None:
             await db._conn.execute("ALTER TABLE _sprints_old RENAME TO sprints")
         else:
             # Keep whichever has more rows.
-            old_n = (
-                await db._conn.execute("SELECT count(*) FROM _sprints_old")
-            ).fetchone()
-            new_n = (await db._conn.execute("SELECT count(*) FROM sprints")).fetchone()
+            old_cursor = await db._conn.execute("SELECT count(*) FROM _sprints_old")
+            old_n = await old_cursor.fetchone()
+            new_cursor = await db._conn.execute("SELECT count(*) FROM sprints")
+            new_n = await new_cursor.fetchone()
             old_count = old_n[0] if old_n else 0
             new_count = new_n[0] if new_n else 0
             if old_count > new_count:

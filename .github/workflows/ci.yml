@@ -27,6 +27,9 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
+      - name: Pyright type check
+        run: uv run pyright researchloop/
+
   test:
     runs-on: ubuntu-latest
     strategy:
