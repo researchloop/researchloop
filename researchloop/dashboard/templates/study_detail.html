@@ -14,7 +14,7 @@
 <div class="card">
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if success %}<p class="success">{{ success }}</p>{% endif %}
-  <form method="post" action="/dashboard/studies/{{ study.name }}/sprint">
+  <form method="post" action="/dashboard/studies/{{ study.name }}/sprint" onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Submitting...';">
     <div class="form-group">
       <label for="idea">Research idea</label>
       <textarea name="idea" id="idea" rows="3" placeholder="Describe what this sprint should investigate..." required></textarea>
