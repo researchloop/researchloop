@@ -487,12 +487,15 @@ def add_dashboard_routes(
                             f"cat {sprint_path}/idea.txt 2>/dev/null || true"
                         )
 
-                        # Read findings.md and progress.md.
+                        # Read findings.md, progress.md, and output.log.
                         findings_out, _, _ = await ssh.run(
                             f"cat {sprint_path}/findings.md 2>/dev/null || true"
                         )
                         progress_out, _, _ = await ssh.run(
                             f"cat {sprint_path}/progress.md 2>/dev/null || true"
+                        )
+                        output_log_out, _, _ = await ssh.run(
+                            f"tail -50 {sprint_path}/output.log 2>/dev/null || true"
                         )
 
                         # Build update dict.
@@ -518,11 +521,16 @@ def add_dashboard_routes(
                         if summary_out.strip():
                             update_kw["summary"] = summary_out.strip()
 
-                        # Build log display: progress + tool log.
+                        # Build log display: progress + output + tool log.
                         parts: list[str] = []
                         progress_text = progress_out.strip()
                         if progress_text:
                             parts.append(progress_text)
+                        output_text = output_log_out.strip()
+                        if output_text:
+                            parts.append(
+                                f"--- Script output (last 50 lines) ---\n{output_text}"
+                            )
                         sprint_log = sprint_log_out.strip()
                         display_log = sprint_log or log_text
                         if display_log:

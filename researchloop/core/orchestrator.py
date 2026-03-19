@@ -432,6 +432,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         log_tail: str | None = body.get("log_tail")
         recent_files: str | None = body.get("recent_files")
         progress: str | None = body.get("progress")
+        output_log: str | None = body.get("output_log")
 
         if not sprint_id:
             raise HTTPException(status_code=400, detail="sprint_id is required")
@@ -462,10 +463,14 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         if phase:
             update_fields["status"] = phase
         # Store log + progress so the dashboard can show live state.
-        if log_tail or progress:
+        if log_tail or progress or output_log:
             parts: list[str] = []
             if progress:
                 parts.append(progress.strip())
+            if output_log:
+                parts.append(
+                    f"--- Script output (last 30 lines) ---\n{output_log.strip()}"
+                )
             if log_tail:
                 parts.append(f"--- Tool log ---\n{log_tail.strip()}")
             if recent_files:
