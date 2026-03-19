@@ -60,38 +60,68 @@ run_step() {
     log ">>> Starting step: $step_name"
     echo ">>> Step: $step_name"
 
-    local cmd=($CLAUDE_CMD -p "$(cat "$prompt_file")" --output-format json)
+    local cmd=($CLAUDE_CMD -p "$(cat "$prompt_file")" --output-format stream-json)
     if [ -n "$SESSION_ID" ]; then
         cmd+=(--resume "$SESSION_ID")
     fi
 
-    local output_file="$SPRINT_DIR/.researchloop/${step_name}_output.json"
-    "${cmd[@]}" > "$output_file" 2> >(tee -a "$LOG_FILE" >&2) || {
+    # Run claude with streaming JSON output.
+    # Each line is a JSON event — we pipe through a filter that:
+    # 1. Logs human-readable summaries of what Claude is doing
+    # 2. Saves the full stream for post-processing
+    local output_file="$SPRINT_DIR/.researchloop/${step_name}_output.jsonl"
+    "${cmd[@]}" 2> >(tee -a "$LOG_FILE" >&2) | tee "$output_file" | python3 -u -c "
+import sys, json, os, time
+log = open('$LOG_FILE', 'a', buffering=1)
+last_tool_time = 0
+tool_count = 0
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        evt = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    t = evt.get('type', '')
+    if t == 'assistant' and 'content' in evt:
+        for block in evt['content']:
+            bt = block.get('type', '')
+            if bt == 'tool_use':
+                tool = block.get('name', '?')
+                inp = block.get('input', {})
+                tool_count += 1
+                if tool in ('Write', 'Edit'):
+                    path = inp.get('file_path', '?')
+                    fname = os.path.basename(path)
+                    summary = f'{tool} {fname}'
+                elif tool == 'Bash':
+                    cmd_str = inp.get('command', '')[:80].split('\n')[0]
+                    summary = f'$ {cmd_str}'
+                elif tool == 'Read':
+                    path = inp.get('file_path', '?')
+                    fname = os.path.basename(path)
+                    summary = f'Read {fname}'
+                elif tool in ('WebSearch', 'WebFetch'):
+                    summary = f'{tool}'
+                else:
+                    summary = tool
+                log.write(f'  [{tool_count}] {summary}\n')
+                log.flush()
+    elif t == 'result':
+        sid = evt.get('session_id', '')
+        if sid:
+            open('$SPRINT_DIR/.researchloop/session_id', 'w').write(sid)
+        result = evt.get('result', '') or ''
+        log.write(f'  Done ({tool_count} tool calls, {len(result)} chars output)\n')
+        log.flush()
+log.close()
+" || {
         local rc=$?
         log "ERROR: Claude failed on step $step_name (exit $rc)"
-        cat "$output_file" | tail -20 >> "$LOG_FILE"
+        tail -20 "$output_file" >> "$LOG_FILE" 2>/dev/null
         return 1
     }
-
-    local output
-    output=$(cat "$output_file")
-
-    python3 -c "
-import sys, json
-try:
-    d = json.loads(sys.argv[1])
-    sid = d.get('session_id', '')
-    result = d.get('result', '') or d.get('text', '') or ''
-    if sid:
-        open('$SPRINT_DIR/.researchloop/session_id', 'w').write(sid)
-    preview = result[:500] if result else '(no text output)'
-    with open('$LOG_FILE', 'a') as f:
-        f.write(f'  Output: {len(result)} chars\n')
-        f.write(f'  Preview: {preview}\n')
-except Exception as e:
-    with open('$LOG_FILE', 'a') as f:
-        f.write(f'  JSON parse error: {e}\n')
-" "$output" 2>/dev/null || true
 
     if [ -f "$SPRINT_DIR/.researchloop/session_id" ]; then
         SESSION_ID=$(cat "$SPRINT_DIR/.researchloop/session_id")
@@ -133,6 +163,55 @@ print(json.dumps({
     done
     log "WARNING: Webhook failed after 3 attempts"
 }
+
+# --- Background heartbeat: sends log + file activity every 60s ---
+send_heartbeat() {
+    local phase="${1:-running}"
+    if [ -z "$ORCHESTRATOR_URL" ]; then return; fi
+    local log_tail=""
+    if [ -f "$LOG_FILE" ]; then
+        log_tail=$(tail -30 "$LOG_FILE" 2>/dev/null || true)
+    fi
+    local recent_files=""
+    recent_files=$(find "$SPRINT_DIR" -maxdepth 2 -name '*.py' -o -name '*.md' -o -name '*.txt' -o -name '*.json' 2>/dev/null \
+        | xargs ls -lt 2>/dev/null | head -8 | awk '{print $6, $7, $8, $9}' || true)
+    local payload
+    payload=$(python3 -c "
+import json, sys
+log = sys.stdin.read()
+print(json.dumps({
+    'sprint_id': '$SPRINT_ID',
+    'phase': sys.argv[1],
+    'log_tail': log,
+    'recent_files': sys.argv[2],
+}))
+" "$phase" "$recent_files" <<< "$log_tail" 2>/dev/null) || return
+    curl -s --max-time 10 -X POST \
+        "$ORCHESTRATOR_URL/api/webhook/heartbeat" \
+        -H "Content-Type: application/json" \
+        -H "X-Webhook-Token: $WEBHOOK_TOKEN" \
+        -d "$payload" > /dev/null 2>&1 || true
+}
+
+_heartbeat_loop() {
+    while true; do
+        sleep 60
+        local step="running"
+        if [ -f "$LOG_FILE" ]; then
+            local last_step
+            last_step=$(grep -o '>>> Starting step: [a-z_]*' "$LOG_FILE" | tail -1 | sed 's/>>> Starting step: //' || true)
+            if [ -n "$last_step" ]; then
+                step="running ($last_step)"
+            fi
+        fi
+        send_heartbeat "$step"
+        echo "[$(date -u +%H:%M:%S)] ... still running (heartbeat)" >> "$LOG_FILE"
+    done
+}
+
+_heartbeat_loop &
+HEARTBEAT_PID=$!
+trap "kill $HEARTBEAT_PID 2>/dev/null || true" EXIT
 
 # --- Write prompt files (pre-rendered by orchestrator) ---
 {% for prompt in prompts %}

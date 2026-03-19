@@ -428,8 +428,9 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         body: dict[str, Any] = await request.json()
         sprint_id = body.get("sprint_id", "")
         await _check_webhook_token(sprint_id, x_webhook_token)
-        sprint_id: str = body.get("sprint_id", "")
         phase: str | None = body.get("phase")
+        log_tail: str | None = body.get("log_tail")
+        recent_files: str | None = body.get("recent_files")
 
         if not sprint_id:
             raise HTTPException(status_code=400, detail="sprint_id is required")
@@ -438,16 +439,36 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
 
         from researchloop.db import queries
 
+        # Build metadata with heartbeat info.
+        meta: dict[str, Any] = {
+            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+            "phase": phase,
+        }
+        # Preserve existing report/has_pdf from metadata.
+        sprint = await queries.get_sprint(orchestrator.db, sprint_id)
+        if sprint and sprint.get("metadata_json"):
+            try:
+                existing = json.loads(sprint["metadata_json"])
+                for k in ("report", "has_pdf"):
+                    if k in existing:
+                        meta[k] = existing[k]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         update_fields: dict[str, Any] = {
-            "metadata_json": json.dumps(
-                {
-                    "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-                    "phase": phase,
-                }
-            ),
+            "metadata_json": json.dumps(meta),
         }
         if phase:
             update_fields["status"] = phase
+        # Store log tail so the dashboard can show live progress.
+        if log_tail:
+            log_display = log_tail.strip()
+            if recent_files:
+                log_display += (
+                    f"\n\n--- Recent file activity ---"
+                    f"\n{recent_files.strip()}"
+                )
+            update_fields["error"] = log_display
 
         await queries.update_sprint(orchestrator.db, sprint_id, **update_fields)
 
