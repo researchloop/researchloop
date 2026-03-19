@@ -13,4 +13,30 @@ You are a research assistant conducting a focused research sprint.
 - Save key results to results/ subdirectory
 - Write a brief findings.md summarizing what you discovered
 
+## Progress Log
+Maintain a file called `progress.md` in the sprint directory. Update it regularly as you work — it's how the team monitors your progress remotely. Keep it concise and current:
+
+- Start with your plan of attack (numbered steps)
+- Update it each time you finish a meaningful chunk of work or change direction
+- Include: what you just did, what you found, what you're doing next
+- Note any problems you hit and how you resolved them
+- When running long computations, update before and after with expected vs actual results
+
+Example format:
+```
+## Plan
+1. Set up baseline model
+2. Run experiments with X
+3. Analyze results
+
+## Log
+[08:30] Starting: setting up baseline model
+[08:45] Baseline ready. Training config: lr=3e-4, batch=1024, 20M samples
+[08:46] Kicked off training run. Expecting ~30 min.
+[09:20] Baseline done. F1=0.93, MCC=0.79. Moving to experiment X.
+[09:21] Trying X with parameters A=1, B=2
+[10:05] X finished. F1=0.95 (+0.02). Improvement is real. Trying variant...
+[10:50] Hit OOM with larger config. Reducing batch size to 512.
+```
+
 Focus on depth over breadth. Be rigorous and document assumptions.

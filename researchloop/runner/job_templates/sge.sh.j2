@@ -172,8 +172,12 @@ send_heartbeat() {
     if [ -f "$LOG_FILE" ]; then
         log_tail=$(tail -30 "$LOG_FILE" 2>/dev/null || true)
     fi
+    local progress=""
+    if [ -f "$SPRINT_DIR/progress.md" ]; then
+        progress=$(tail -50 "$SPRINT_DIR/progress.md" 2>/dev/null || true)
+    fi
     local recent_files=""
-    recent_files=$(find "$SPRINT_DIR" -maxdepth 2 -name '*.py' -o -name '*.md' -o -name '*.txt' -o -name '*.json' 2>/dev/null \
+    recent_files=$(find "$SPRINT_DIR" -maxdepth 2 \( -name '*.py' -o -name '*.md' -o -name '*.txt' -o -name '*.json' \) 2>/dev/null \
         | xargs ls -lt 2>/dev/null | head -8 | awk '{print $6, $7, $8, $9}' || true)
     local payload
     payload=$(python3 -c "
@@ -184,8 +188,9 @@ print(json.dumps({
     'phase': sys.argv[1],
     'log_tail': log,
     'recent_files': sys.argv[2],
+    'progress': sys.argv[3],
 }))
-" "$phase" "$recent_files" <<< "$log_tail" 2>/dev/null) || return
+" "$phase" "$recent_files" "$progress" <<< "$log_tail" 2>/dev/null) || return
     curl -s --max-time 10 -X POST \
         "$ORCHESTRATOR_URL/api/webhook/heartbeat" \
         -H "Content-Type: application/json" \
