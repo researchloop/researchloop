@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 _ACTION_RE = re.compile(r"\[ACTION:\s*(\w+)\s*(\{.*?\})\]", re.DOTALL)
 
 
+def _md_to_slack(text: str) -> str:
+    """Convert markdown formatting to Slack mrkdwn."""
+    lines = text.split("\n")
+    result = []
+    for line in lines:
+        # Headers → bold
+        line = re.sub(r"^#{1,6}\s+(.+)$", r"*\1*", line)
+        # **bold** → *bold*
+        line = re.sub(r"\*\*(.+?)\*\*", r"*\1*", line)
+        # [text](url) → <url|text>
+        line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", line)
+        result.append(line)
+    return "\n".join(result)
+
+
 class ConversationManager:
     """Maps Slack threads to Claude CLI sessions.
 
@@ -64,6 +79,11 @@ class ConversationManager:
             "You are the ResearchLoop assistant, helping "
             "researchers plan and manage automated research "
             "sprints on HPC clusters.",
+            "",
+            "IMPORTANT: Format responses for Slack. Use *bold* "
+            "(single asterisks), _italic_, `code`, and bullet "
+            "points with •. Do NOT use markdown headers (##), "
+            "**double asterisks**, or [links](url).",
             "",
             "You can:",
             "- Discuss research ideas and help plan sprints",
@@ -194,7 +214,7 @@ class ConversationManager:
             response_text = _ACTION_RE.sub("", response_text).strip()
             response_text += "\n\n" + "\n".join(action_results)
 
-        return response_text
+        return _md_to_slack(response_text)
 
     async def _execute_actions(self, text: str) -> list[str]:
         """Parse and execute [ACTION: ...] tags."""
