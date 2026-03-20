@@ -20,8 +20,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # Install researchloop
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv venv /app/.venv && \
-    uv pip install --python /app/.venv/bin/python --no-cache \
-    "researchloop @ git+https://github.com/chanind/researchloop.git"
+    uv pip install --python /app/.venv/bin/python --no-cache researchloop
 
 WORKDIR /app
 

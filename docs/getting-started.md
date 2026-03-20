@@ -3,24 +3,13 @@
 ## Prerequisites
 
 - **Python 3.10+**
-- **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
 - **SSH access** to an HPC cluster with SLURM or SGE
 - **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)** installed and authenticated on the HPC cluster
 
 ## Installation
 
-### From GitHub
-
 ```bash
-pip install git+https://github.com/chanind/researchloop.git
-```
-
-### For development
-
-```bash
-git clone https://github.com/chanind/researchloop.git
-cd researchloop
-uv sync
+pip install researchloop
 ```
 
 ## Initialize a project

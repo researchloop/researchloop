@@ -2,8 +2,9 @@
 
 **Automated AI research sprints on HPC clusters.**
 
-[![CI](https://github.com/chanind/researchloop/actions/workflows/ci.yml/badge.svg)](https://github.com/chanind/researchloop/actions/workflows/ci.yml)
+[![CI](https://github.com/researchloop/researchloop/actions/workflows/ci.yml/badge.svg)](https://github.com/researchloop/researchloop/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![PyPI](https://img.shields.io/pypi/v/researchloop.svg)](https://pypi.org/project/researchloop/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 Full docs: https://researchloop.github.io/researchloop
@@ -78,22 +79,13 @@ All steps share a single Claude session (via `--resume`), so Claude maintains fu
 ### Prerequisites
 
 - Python 3.10+
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - SSH access to an HPC cluster with SLURM or SGE
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated on the HPC cluster
 
 ### Install
 
 ```bash
-pip install git+https://github.com/chanind/researchloop.git
-```
-
-Or for development:
-
-```bash
-git clone https://github.com/chanind/researchloop.git
-cd researchloop
-uv sync
+pip install researchloop
 ```
 
 ### Initialize a project
@@ -272,7 +264,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv venv /app/.venv && \
     uv pip install --python /app/.venv/bin/python --no-cache \
-    "researchloop @ git+https://github.com/chanind/researchloop.git"
+    "researchloop @ git+https://github.com/researchloop/researchloop.git"
 
 WORKDIR /app
 COPY researchloop.toml .
@@ -483,7 +475,7 @@ Authentication uses either a bearer token (from `/api/auth`) or the `X-Shared-Se
 ### Setup
 
 ```bash
-git clone https://github.com/chanind/researchloop.git
+git clone https://github.com/researchloop/researchloop.git
 cd researchloop
 uv sync
 ```

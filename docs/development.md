@@ -3,7 +3,7 @@
 ## Setup
 
 ```bash
-git clone https://github.com/chanind/researchloop.git
+git clone https://github.com/researchloop/researchloop.git
 cd researchloop
 uv sync
 ```
