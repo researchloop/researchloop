@@ -1136,3 +1136,185 @@ async def _cluster_check(config_path: str | None, cluster_name: str | None) -> N
 def cluster_check(ctx: click.Context, name: str | None) -> None:
     """Check cluster connectivity."""
     run_async(_cluster_check(ctx.obj.get("config_path"), name))
+
+
+# ===================================================================
+# Slack testing commands
+# ===================================================================
+
+
+@cli.command("test-slack")
+@click.argument("message")
+@click.option(
+    "--url",
+    default="http://localhost:8080",
+    show_default=True,
+    help="Orchestrator URL to send the event to",
+)
+@click.option(
+    "--signing-secret",
+    default="test_signing_secret",
+    show_default=True,
+    help="Slack signing secret for signature generation",
+)
+@click.option("--user", default="U_TEST", show_default=True, help="Slack user ID")
+@click.option("--channel", default="C_TEST", show_default=True, help="Slack channel ID")
+@click.option(
+    "--thread-ts",
+    default=None,
+    help="Thread timestamp (for threaded replies)",
+)
+def test_slack(
+    message: str,
+    url: str,
+    signing_secret: str,
+    user: str,
+    channel: str,
+    thread_ts: str | None,
+) -> None:
+    """Send a signed Slack event to the orchestrator for testing.
+
+    Example::
+
+        researchloop test-slack "help" --url http://localhost:8080
+
+        researchloop test-slack "sprint run my-study some idea" \\
+            --signing-secret abc123
+    """
+    import hashlib as _hashlib
+    import hmac as _hmac
+    import time as _time
+    import uuid as _uuid
+
+    ts = thread_ts or f"{int(_time.time())}.000001"
+
+    event_id = f"Ev{_uuid.uuid4().hex[:10].upper()}"
+    payload: dict[str, Any] = {
+        "type": "event_callback",
+        "event_id": event_id,
+        "event": {
+            "type": "message",
+            "text": message,
+            "user": user,
+            "channel": channel,
+            "channel_type": "channel",
+            "ts": ts,
+        },
+    }
+    if thread_ts:
+        payload["event"]["thread_ts"] = thread_ts
+
+    body = json.dumps(payload).encode()
+
+    timestamp = str(int(_time.time()))
+    basestring = f"v0:{timestamp}:{body.decode('utf-8')}"
+    sig = (
+        "v0="
+        + _hmac.new(
+            signing_secret.encode(),
+            basestring.encode(),
+            _hashlib.sha256,
+        ).hexdigest()
+    )
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Slack-Request-Timestamp": timestamp,
+        "X-Slack-Signature": sig,
+    }
+
+    target = url.rstrip("/") + "/api/slack/events"
+    click.echo(f"Sending event to {target}")
+    click.echo(f"  User   : {user}")
+    click.echo(f"  Channel: {channel}")
+    click.echo(f"  Text   : {message}")
+    if thread_ts:
+        click.echo(f"  Thread : {thread_ts}")
+    click.echo()
+
+    try:
+        resp = httpx.post(target, content=body, headers=headers, timeout=10)
+        click.echo(click.style(f"Response [{resp.status_code}]:", bold=True))
+        try:
+            click.echo(json.dumps(resp.json(), indent=2))
+        except Exception:
+            click.echo(resp.text)
+    except httpx.ConnectError:
+        raise click.ClickException(f"Cannot connect to {target}")
+    except httpx.TimeoutException:
+        raise click.ClickException(f"Request timed out: {target}")
+
+
+@cli.command("mock-slack")
+@click.option(
+    "--port",
+    default=9876,
+    show_default=True,
+    type=int,
+    help="Port to run the mock server on",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Host to bind to",
+)
+@click.option(
+    "--target-url",
+    default="http://localhost:8080",
+    show_default=True,
+    help="Orchestrator URL for the /send-event endpoint",
+)
+@click.option(
+    "--signing-secret",
+    default="mock_signing_secret",
+    show_default=True,
+    help="Signing secret for generated events",
+)
+def mock_slack(
+    port: int,
+    host: str,
+    target_url: str,
+    signing_secret: str,
+) -> None:
+    """Start a mock Slack API server for local testing.
+
+    This server captures all outbound Slack API calls (postMessage,
+    files.upload) and exposes inspection endpoints.
+
+    Example::
+
+        researchloop mock-slack --port 9876
+
+    Then set the environment variable before starting the orchestrator::
+
+        export RESEARCHLOOP_SLACK_API_URL=http://localhost:9876/api
+        researchloop serve
+    """
+    import uvicorn
+
+    from researchloop.testing.slack_mock import create_mock_slack_app
+
+    app = create_mock_slack_app(
+        target_url=target_url,
+        signing_secret=signing_secret,
+    )
+
+    api_url = f"http://{host}:{port}/api"
+    click.echo()
+    click.echo(click.style("Mock Slack API", fg="cyan", bold=True))
+    click.echo()
+    click.echo(f"  Running at: {api_url}")
+    click.echo()
+    click.echo(
+        "  Set "
+        + click.style(f"RESEARCHLOOP_SLACK_API_URL={api_url}", bold=True)
+        + " to redirect Slack calls"
+    )
+    click.echo()
+    click.echo(f"  View captured messages: http://{host}:{port}/captured")
+    click.echo(f"  Clear captured:         POST http://{host}:{port}/clear")
+    click.echo(f"  Send test event:        POST http://{host}:{port}/send-event")
+    click.echo()
+
+    uvicorn.run(app, host=host, port=port)

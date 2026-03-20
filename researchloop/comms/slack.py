@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import os
 import time
 from typing import Any
 
@@ -14,7 +15,7 @@ from researchloop.comms.base import BaseNotifier
 
 logger = logging.getLogger(__name__)
 
-_SLACK_API = "https://slack.com/api"
+_SLACK_API = os.environ.get("RESEARCHLOOP_SLACK_API_URL", "https://slack.com/api")
 
 
 class SlackNotifier(BaseNotifier):
