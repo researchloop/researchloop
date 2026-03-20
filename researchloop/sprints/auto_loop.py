@@ -150,6 +150,22 @@ class AutoLoopController:
         total = parent_loop["total_count"]
         study_name: str = parent_loop["study_name"]
 
+        # Check if the sprint failed — stop the loop instead of advancing.
+        sprint = await queries.get_sprint(self.db, sprint_id)
+        if sprint and sprint.get("status") == "failed":
+            await queries.update_auto_loop(
+                self.db,
+                loop_id,
+                status="failed",
+                stopped_at=datetime.now(timezone.utc).isoformat(),
+            )
+            logger.warning(
+                "Auto-loop %s stopped: sprint %s failed",
+                loop_id,
+                sprint_id,
+            )
+            return
+
         await queries.update_auto_loop(
             self.db,
             loop_id,

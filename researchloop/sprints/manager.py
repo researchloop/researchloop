@@ -470,6 +470,7 @@ class SprintManager:
         """Cancel a running or submitted sprint.
 
         Returns ``True`` if the cancellation succeeded.
+        If the sprint belongs to an auto-loop, the loop is also stopped.
         """
         sprint = await queries.get_sprint(self.db, sprint_id)
         if sprint is None:
@@ -508,31 +509,59 @@ class SprintManager:
                 status=SprintStatus.CANCELLED.value,
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
-            return True
+        else:
+            cluster_dict = {
+                "host": cluster_cfg.host,
+                "port": cluster_cfg.port,
+                "user": cluster_cfg.user,
+                "key_path": cluster_cfg.key_path,
+            }
+            ssh = await self.ssh_manager.get_connection(cluster_dict)
+            await scheduler.cancel(ssh, job_id)
 
-        cluster_dict = {
-            "host": cluster_cfg.host,
-            "port": cluster_cfg.port,
-            "user": cluster_cfg.user,
-            "key_path": cluster_cfg.key_path,
-        }
-        ssh = await self.ssh_manager.get_connection(cluster_dict)
-        success = await scheduler.cancel(ssh, job_id)
+            await queries.update_sprint(
+                self.db,
+                sprint_id,
+                status=SprintStatus.CANCELLED.value,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
 
-        await queries.update_sprint(
-            self.db,
-            sprint_id,
-            status=SprintStatus.CANCELLED.value,
-            completed_at=datetime.now(timezone.utc).isoformat(),
-        )
+        logger.info("Sprint %s cancelled", sprint_id)
 
-        logger.info(
-            "Sprint %s (job %s) cancelled: %s",
-            sprint_id,
-            job_id,
-            "success" if success else "scheduler reported failure",
-        )
-        return success
+        # Stop the parent auto-loop if this sprint belongs to one.
+        loop_id = sprint.get("loop_id")
+        if loop_id:
+            try:
+                loop = await queries.get_auto_loop(self.db, loop_id)
+                if loop and loop["status"] == "running":
+                    await queries.update_auto_loop(
+                        self.db,
+                        loop_id,
+                        status="stopped",
+                        stopped_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                    logger.info(
+                        "Auto-loop %s stopped (sprint %s cancelled)",
+                        loop_id,
+                        sprint_id,
+                    )
+            except Exception:
+                logger.warning(
+                    "Failed to stop loop %s after cancelling sprint %s",
+                    loop_id,
+                    sprint_id,
+                    exc_info=True,
+                )
+
+        # Notify about cancellation.
+        if self.notification_router is not None:
+            await self.notification_router.notify_sprint_failed(
+                sprint_id=sprint_id,
+                study_name=study_name,
+                error="Sprint cancelled",
+            )
+
+        return True
 
     # ------------------------------------------------------------------
     # Query helpers

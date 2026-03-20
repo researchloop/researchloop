@@ -166,6 +166,67 @@ class TestSprintManagerCompletion:
         row = await queries.get_sprint(db_with_study, sprint.id)
         assert row["idea"] == "original idea"
 
+    async def test_cancel_sprint_stops_parent_loop(self, db_with_study, sample_config):
+        """Cancelling a loop sprint should stop the parent loop."""
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={"local": AsyncMock()},
+        )
+        sprint = await mgr.create_sprint("test-study", "loop idea")
+
+        # Assign to a loop.
+        await queries.create_auto_loop(
+            db_with_study, id="loop-cancel", study_name="test-study", total_count=3
+        )
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-cancel",
+            current_sprint_id=sprint.id,
+            status="running",
+        )
+        await queries.update_sprint(db_with_study, sprint.id, loop_id="loop-cancel")
+
+        await mgr.cancel_sprint(sprint.id)
+
+        # Sprint should be cancelled.
+        row = await queries.get_sprint(db_with_study, sprint.id)
+        assert row["status"] == "cancelled"
+
+        # Loop should be stopped.
+        loop = await queries.get_auto_loop(db_with_study, "loop-cancel")
+        assert loop["status"] == "stopped"
+        assert loop["stopped_at"] is not None
+
+    async def test_cancel_sprint_sends_notification(self, db_with_study, sample_config):
+        """Cancelling a sprint should notify via the notification router."""
+        from researchloop.comms.router import NotificationRouter
+
+        router = NotificationRouter()
+        mock_notifier = AsyncMock()
+        router.add_notifier(mock_notifier)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={"local": AsyncMock()},
+            notification_router=router,
+        )
+        sprint = await mgr.create_sprint("test-study", "cancel notify test")
+        await mgr.cancel_sprint(sprint.id)
+
+        mock_notifier.notify_sprint_failed.assert_called_once()
+        call_args = mock_notifier.notify_sprint_failed.call_args
+        # Could be positional or keyword args.
+        kwargs = call_args.kwargs if call_args.kwargs else {}
+        args = call_args.args if call_args.args else ()
+        sid = kwargs.get("sprint_id") or (args[0] if args else None)
+        err = kwargs.get("error") or (args[2] if len(args) > 2 else "")
+        assert sid == sprint.id
+        assert "cancelled" in err.lower()
+
     async def test_handle_completion_with_notifier(self, db_with_study, sample_config):
         from researchloop.comms.router import NotificationRouter
 

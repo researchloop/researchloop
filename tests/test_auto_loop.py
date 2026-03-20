@@ -86,6 +86,47 @@ class TestOnSprintCompleteIncrement:
         assert loop["status"] == "running"
 
 
+class TestOnSprintCompleteStopsOnFailure:
+    """Loop stops when a sprint fails."""
+
+    async def test_stops_loop_on_failed_sprint(
+        self,
+        db_with_study,
+        sample_config,
+    ):
+        ctrl = _make_controller(db_with_study, sample_config)
+
+        await queries.create_auto_loop(
+            db_with_study,
+            id="loop-fail",
+            study_name="test-study",
+            total_count=3,
+        )
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-fail",
+            current_sprint_id="sp-broken",
+            status="running",
+            completed_count=0,
+        )
+
+        # Create a sprint marked as failed.
+        await queries.create_sprint(
+            db_with_study, "sp-broken", "test-study", "bad idea"
+        )
+        await queries.update_sprint(db_with_study, "sp-broken", status="failed")
+
+        await ctrl.on_sprint_complete("sp-broken")
+
+        loop = await queries.get_auto_loop(db_with_study, "loop-fail")
+        assert loop is not None
+        assert loop["status"] == "failed"
+        assert loop["stopped_at"] is not None
+
+        # No new sprint should have been created.
+        ctrl.sprint_manager.create_sprint.assert_not_called()
+
+
 class TestOnSprintCompleteMarksCompleted:
     """Loop is marked completed when all sprints are done."""
 
