@@ -363,10 +363,25 @@ async def _refresh_sprint(
     accept_json: bool = True,
 ) -> httpx.Response:
     """Set up auth and call refresh via httpx.AsyncClient."""
+    import re
+
     transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         await _setup_dashboard_auth(client)
-        headers = {"accept": "application/json"} if accept_json else {}
+
+        # Extract CSRF token from a dashboard page.
+        page = await client.get(
+            f"/dashboard/sprints/{sprint_id}",
+            follow_redirects=True,
+        )
+        csrf_match = re.search(r'name="csrf_token"\s+value="([^"]+)"', page.text)
+        csrf_token = csrf_match.group(1) if csrf_match else ""
+
+        headers: dict[str, str] = {}
+        if accept_json:
+            headers["accept"] = "application/json"
+        if csrf_token:
+            headers["X-CSRF-Token"] = csrf_token
         return await client.post(
             f"/dashboard/sprints/{sprint_id}/refresh",
             headers=headers,
