@@ -62,11 +62,13 @@ class AutoLoopController:
         study_name: str,
         count: int,
         context: str = "",
+        job_options: dict[str, str] | None = None,
     ) -> str:
         """Start a new auto-loop for *study_name* with *count* sprints.
 
         *context* is optional guidance for the idea generator
         (e.g. "Focus on improving F1 score").
+        *job_options* are SLURM overrides applied to every sprint.
 
         Raises ``ValueError`` if the study has ``allow_loop = false``.
         """
@@ -84,12 +86,17 @@ class AutoLoopController:
             total_count=count,
         )
 
-        # Store loop context for idea generation.
+        # Store loop context and job_options in metadata.
+        meta: dict[str, object] = {}
         if context:
+            meta["context"] = context
+        if job_options:
+            meta["job_options"] = job_options
+        if meta:
             await queries.update_auto_loop(
                 self.db,
                 loop_id,
-                metadata_json=json.dumps({"context": context}),
+                metadata_json=json.dumps(meta),
             )
 
         logger.info(
@@ -104,7 +111,9 @@ class AutoLoopController:
         # idea generator prompt in the job script.
         sprint = await self.sprint_manager.create_sprint(study_name, None)
         await queries.update_sprint(self.db, sprint.id, loop_id=loop_id)
-        job_id = await self.sprint_manager.submit_sprint(sprint.id)
+        job_id = await self.sprint_manager.submit_sprint(
+            sprint.id, extra_job_options=job_options
+        )
         sprint.job_id = job_id
 
         await queries.update_auto_loop(
@@ -140,9 +149,20 @@ class AutoLoopController:
 
         study_name: str = loop["study_name"]
 
+        # Extract job_options from loop metadata.
+        loop_job_options: dict[str, str] | None = None
+        meta_str = loop.get("metadata_json")
+        if meta_str:
+            try:
+                loop_job_options = json.loads(meta_str).get("job_options")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         sprint = await self.sprint_manager.create_sprint(study_name, None)
         await queries.update_sprint(self.db, sprint.id, loop_id=loop_id)
-        job_id = await self.sprint_manager.submit_sprint(sprint.id)
+        job_id = await self.sprint_manager.submit_sprint(
+            sprint.id, extra_job_options=loop_job_options
+        )
         sprint.job_id = job_id
 
         await queries.update_auto_loop(
@@ -232,13 +252,24 @@ class AutoLoopController:
             )
             return
 
+        # Extract job_options from loop metadata.
+        loop_job_options: dict[str, str] | None = None
+        meta_str = parent_loop.get("metadata_json")
+        if meta_str:
+            try:
+                loop_job_options = json.loads(meta_str).get("job_options")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         # Submit next sprint — idea will be auto-generated
         # on the cluster where Claude is authenticated.
         # Set loop_id BEFORE submission so submit_sprint includes the
         # idea generator prompt in the job script.
         sprint = await self.sprint_manager.create_sprint(study_name, None)
         await queries.update_sprint(self.db, sprint.id, loop_id=loop_id)
-        job_id = await self.sprint_manager.submit_sprint(sprint.id)
+        job_id = await self.sprint_manager.submit_sprint(
+            sprint.id, extra_job_options=loop_job_options
+        )
         sprint.job_id = job_id
 
         await queries.update_auto_loop(

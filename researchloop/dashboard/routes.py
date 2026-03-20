@@ -109,6 +109,20 @@ def add_dashboard_routes(
     async def _needs_setup() -> bool:
         return await _get_password_hash() is None
 
+    def _parse_job_options(form: object) -> dict[str, str]:
+        """Extract GPU/memory/CPU overrides from form data."""
+        opts: dict[str, str] = {}
+        gpu = str(getattr(form, "get", lambda k, d: d)("gpu", "")).strip()
+        mem = str(getattr(form, "get", lambda k, d: d)("mem", "")).strip()
+        cpus = str(getattr(form, "get", lambda k, d: d)("cpus", "")).strip()
+        if gpu:
+            opts["gres"] = gpu
+        if mem:
+            opts["mem"] = mem
+        if cpus:
+            opts["cpus-per-task"] = cpus
+        return opts
+
     def _ctx(request: Request, authenticated: bool = False, **kwargs: object) -> dict:
         return {
             "request": request,
@@ -641,8 +655,11 @@ def add_dashboard_routes(
         if not study_name or not idea:
             return RedirectResponse("/dashboard/sprints", status_code=303)
 
+        job_opts = _parse_job_options(form)
         try:
-            sprint = await orchestrator.sprint_manager.run_sprint(study_name, idea)
+            sprint = await orchestrator.sprint_manager.run_sprint(
+                study_name, idea, job_options=job_opts or None
+            )
             return RedirectResponse(
                 f"/dashboard/sprints/{sprint.id}",
                 status_code=303,
@@ -666,8 +683,11 @@ def add_dashboard_routes(
                 status_code=303,
             )
 
+        job_opts = _parse_job_options(form)
         try:
-            sprint = await orchestrator.sprint_manager.run_sprint(name, idea)
+            sprint = await orchestrator.sprint_manager.run_sprint(
+                name, idea, job_options=job_opts or None
+            )
             return RedirectResponse(
                 f"/dashboard/sprints/{sprint.id}",
                 status_code=303,
@@ -791,8 +811,14 @@ def add_dashboard_routes(
         except ValueError:
             count = 5
 
+        job_opts = _parse_job_options(form)
         try:
-            loop_id = await orchestrator.auto_loop.start(study_name, count, context)
+            loop_id = await orchestrator.auto_loop.start(
+                study_name,
+                count,
+                context,
+                job_options=job_opts or None,
+            )
             return RedirectResponse(
                 f"/dashboard/loops/{loop_id}",
                 status_code=303,

@@ -198,7 +198,9 @@ class TestOnSprintCompleteStartsNext:
         # create_sprint was called with None idea.
         ctrl.sprint_manager.create_sprint.assert_called_once_with("test-study", None)
         # submit_sprint was called after loop_id was set.
-        ctrl.sprint_manager.submit_sprint.assert_called_once_with("sp-next")
+        ctrl.sprint_manager.submit_sprint.assert_called_once_with(
+            "sp-next", extra_job_options=None
+        )
 
         # current_sprint_id updated.
         loop = await queries.get_auto_loop(
@@ -263,7 +265,7 @@ class TestStartSetsLoopIdBeforeSubmit:
         # Track what loop_id was at submit time.
         loop_id_at_submit: list[str | None] = []
 
-        async def tracking_submit(sprint_id):
+        async def tracking_submit(sprint_id, **_kw):
             row = await queries.get_sprint(db_with_study, sprint_id)
             loop_id_at_submit.append(row.get("loop_id") if row else None)
             return "job-123"
@@ -314,7 +316,7 @@ class TestStartSetsLoopIdBeforeSubmit:
 
         loop_id_at_submit: list[str | None] = []
 
-        async def check_loop_id_submit(sprint_id):
+        async def check_loop_id_submit(sprint_id, **_kw):
             row = await queries.get_sprint(db_with_study, sprint_id)
             loop_id_at_submit.append(row.get("loop_id") if row else None)
             return "job-456"
