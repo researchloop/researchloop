@@ -46,7 +46,10 @@ class SSHConnection:
             connect_kwargs["known_hosts"] = None
 
         logger.info("Connecting to %s@%s:%d", self.user, self.host, self.port)
-        self._conn = await asyncssh.connect(**connect_kwargs)
+        self._conn = await asyncio.wait_for(
+            asyncssh.connect(**connect_kwargs),
+            timeout=30,
+        )
         logger.info("Connected to %s@%s:%d", self.user, self.host, self.port)
         return self
 
