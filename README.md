@@ -6,6 +6,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
+Full docs: https://researchloop.github.io/researchloop
+
 ---
 
 ResearchLoop automates multi-step AI research pipelines on SLURM and SGE clusters. You describe a research idea, and ResearchLoop submits it to your HPC cluster where [Claude Code](https://docs.anthropic.com/en/docs/claude-code) executes a full research pipeline -- coding, red-teaming, fixing, reporting -- inside a single job. Results are reported back via webhooks, Slack, or push notifications, and you can monitor everything from a web dashboard or the CLI.
