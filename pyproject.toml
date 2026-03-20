@@ -33,6 +33,7 @@ dev-dependencies = [
     "ruff>=0.1,<1",
     "pyright>=1.1,<2",
     "pytest-timeout>=2.4.0",
+    "mkdocs-material>=9.0,<10",
 ]
 
 [tool.ruff]
