@@ -1,6 +1,6 @@
 # ResearchLoop
 
-**Run AI research experiments on your HPC cluster. Monitor from anywhere.**
+**Run AI-automated research experiments on your HPC cluster. Monitor from anywhere.**
 
 [![CI](https://github.com/researchloop/researchloop/actions/workflows/ci.yml/badge.svg)](https://github.com/researchloop/researchloop/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/researchloop.svg)](https://pypi.org/project/researchloop/)
@@ -9,7 +9,7 @@
 
 ---
 
-ResearchLoop submits AI-powered research experiments to your SLURM or SGE cluster, then reports back the results. You give it a research idea, it handles the rest: submitting the job, running a multi-step pipeline with [Claude Code](https://docs.anthropic.com/en/docs/claude-code), red-teaming the results, generating a report, and notifying you when it's done.
+ResearchLoop submits AI-powered research experiments to your SLURM or SGE cluster, then reports back the results. You describe a research idea in natural language, it handles the rest: submitting the job, running a multi-step pipeline with [Claude Code](https://docs.anthropic.com/en/docs/claude-code), red-teaming the results, generating a report, and notifying you when it's done.
 
 ```bash
 pip install researchloop
