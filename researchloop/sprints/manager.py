@@ -700,6 +700,7 @@ class SprintManager:
         try:
             study_name = sprint["study_name"]
             if self.study_manager is None:
+                logger.warning("PDF fetch: no study_manager")
                 return None
             cluster_cfg = await self.study_manager.get_cluster_config(study_name)
             # Resolve sprint path.
@@ -726,6 +727,11 @@ class SprintManager:
             # Check if PDF exists.
             _, _, rc = await ssh.run(f"test -f {remote_pdf}")
             if rc != 0:
+                logger.info(
+                    "No report.pdf for %s at %s",
+                    sprint["id"],
+                    remote_pdf,
+                )
                 return None
 
             # Download to local artifact dir.
@@ -736,7 +742,7 @@ class SprintManager:
             logger.info("Downloaded PDF for %s", sprint["id"])
             return local_pdf
         except Exception:
-            logger.debug(
+            logger.warning(
                 "PDF fetch failed for %s",
                 sprint.get("id"),
                 exc_info=True,

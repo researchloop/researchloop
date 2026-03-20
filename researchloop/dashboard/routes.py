@@ -711,7 +711,9 @@ def add_dashboard_routes(
 
         loops = await queries.list_auto_loops(orchestrator.db)
         study_rows = await queries.list_studies(orchestrator.db)
-        study_names = [s["name"] for s in study_rows]
+        # Only show studies that allow loops.
+        loopable = {s.name for s in orchestrator.config.studies if s.allow_loop}
+        study_names = [s["name"] for s in study_rows if s["name"] in loopable]
         return templates.TemplateResponse(
             "loops.html",
             _ctx(

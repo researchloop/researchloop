@@ -3,9 +3,11 @@ job configuration, and abandoned job detection."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -499,3 +501,187 @@ class TestAbandonedJobDetection:
             assert row["completed_at"] is not None
         finally:
             await ssh_mgr.close_all()
+
+
+# ------------------------------------------------------------------
+# 5. PDF Download from Cluster
+# ------------------------------------------------------------------
+
+
+class TestPdfDownloadFromCluster:
+    """Test downloading a PDF artifact from the cluster after sprint completion."""
+
+    async def test_pdf_download_from_cluster(
+        self,
+        integration_db_with_study: Database,
+        integration_config: Config,
+        sprint_manager: SprintManager,
+    ):
+        """Submit a sprint, wait for the job to complete, place a test PDF
+        on the cluster, then verify _fetch_pdf() downloads it locally."""
+        cluster = integration_config.clusters[0]
+        ssh_mgr = SSHManager()
+
+        try:
+            # Submit a sprint so we have a real sprint dir on the cluster.
+            sprint = await sprint_manager.create_sprint(
+                "integration-study", "pdf download test"
+            )
+            job_id = await sprint_manager.submit_sprint(sprint.id)
+            assert job_id.isdigit()
+
+            # Wait for the SLURM job to reach a terminal state.
+            conn = await ssh_mgr.get_connection(
+                {
+                    "host": cluster.host,
+                    "port": cluster.port,
+                    "user": cluster.user,
+                    "key_path": cluster.key_path,
+                }
+            )
+            for _ in range(30):
+                stdout, _, _ = await conn.run(
+                    f"scontrol show job {job_id} -o 2>/dev/null"
+                )
+                if re.search(r"JobState=(COMPLETED|FAILED)", stdout):
+                    break
+                await asyncio.sleep(1)
+
+            # Resolve the remote sprint path.
+            row = await queries.get_sprint(integration_db_with_study, sprint.id)
+            assert row is not None
+            base = integration_config.studies[0].sprints_dir
+            sprint_dir = row["directory"]
+            remote_sprint_path = f"{base}/{sprint_dir}"
+
+            # Write a small test PDF file on the cluster.
+            await conn.run(
+                f"echo '%PDF-1.4 test content' > {remote_sprint_path}/report.pdf"
+            )
+
+            # Verify the file was created on the cluster.
+            _, _, rc = await conn.run(f"test -f {remote_sprint_path}/report.pdf")
+            assert rc == 0, "Test PDF was not created on cluster"
+
+            # Call _fetch_pdf to download it.
+            local_path = await sprint_manager._fetch_pdf(row)
+
+            # Verify the download succeeded.
+            assert local_path is not None, "_fetch_pdf returned None"
+            assert Path(local_path).exists(), (
+                f"Downloaded PDF not found at {local_path}"
+            )
+            assert Path(local_path).stat().st_size > 0, "Downloaded PDF is empty"
+
+            # Verify the content matches what we wrote.
+            content = Path(local_path).read_text()
+            assert "%PDF-1.4 test content" in content
+        finally:
+            await ssh_mgr.close_all()
+
+
+# ------------------------------------------------------------------
+# 6. Loop Resume Submits Next Sprint
+# ------------------------------------------------------------------
+
+
+class TestLoopResume:
+    """Test that resuming a stopped auto-loop submits a new sprint."""
+
+    async def test_loop_resume_submits_next_sprint(
+        self,
+        integration_db_with_study: Database,
+        integration_config: Config,
+        sprint_manager: SprintManager,
+    ):
+        """Start a loop with count=3, stop it, resume it, and verify
+        that the loop is running again with a new sprint submitted."""
+        ctrl = AutoLoopController(
+            db=integration_db_with_study,
+            sprint_manager=sprint_manager,
+            config=integration_config,
+        )
+
+        # Start a loop with 3 sprints.
+        loop_id = await ctrl.start("integration-study", count=3)
+        loop = await queries.get_auto_loop(integration_db_with_study, loop_id)
+        assert loop["status"] == "running"
+        first_sprint_id = loop["current_sprint_id"]
+        assert first_sprint_id is not None
+
+        # Stop the loop.
+        await ctrl.stop(loop_id)
+        loop = await queries.get_auto_loop(integration_db_with_study, loop_id)
+        assert loop["status"] == "stopped"
+        assert loop["stopped_at"] is not None
+
+        # Resume the loop.
+        new_sprint_id = await ctrl.resume(loop_id)
+
+        # Verify loop status is "running" again.
+        loop = await queries.get_auto_loop(integration_db_with_study, loop_id)
+        assert loop["status"] == "running"
+        assert loop["stopped_at"] is None
+
+        # Verify a new sprint was created and is different from the first.
+        assert new_sprint_id != first_sprint_id
+        assert loop["current_sprint_id"] == new_sprint_id
+
+        # Verify the new sprint exists, has loop_id set, and was submitted.
+        new_sprint = await queries.get_sprint(integration_db_with_study, new_sprint_id)
+        assert new_sprint is not None
+        assert new_sprint["loop_id"] == loop_id
+        assert new_sprint["job_id"] is not None
+        assert new_sprint["status"] == "submitted"
+
+
+# ------------------------------------------------------------------
+# 7. Sprint Resubmit Creates New Sprint
+# ------------------------------------------------------------------
+
+
+class TestSprintResubmit:
+    """Test that resubmitting the same idea creates a new sprint."""
+
+    async def test_sprint_resubmit_creates_new_sprint(
+        self,
+        integration_db_with_study: Database,
+        integration_config: Config,
+        sprint_manager: SprintManager,
+    ):
+        """Submit a sprint, cancel it, then call run_sprint with the same
+        idea. Verify that a NEW sprint is created with a different ID
+        but the same idea, and that it is submitted to SLURM."""
+        idea = "resubmit test idea"
+
+        # Submit the first sprint.
+        first_sprint = await sprint_manager.run_sprint("integration-study", idea)
+        assert first_sprint.id is not None
+        assert first_sprint.job_id is not None
+
+        # Cancel it.
+        success = await sprint_manager.cancel_sprint(first_sprint.id)
+        assert success is True
+
+        first_row = await queries.get_sprint(integration_db_with_study, first_sprint.id)
+        assert first_row is not None
+        assert first_row["status"] == "cancelled"
+
+        # Resubmit with the same idea.
+        second_sprint = await sprint_manager.run_sprint("integration-study", idea)
+
+        # Verify a NEW sprint was created with a different ID.
+        assert second_sprint.id != first_sprint.id
+
+        # Verify the new sprint has the same idea.
+        second_row = await queries.get_sprint(
+            integration_db_with_study, second_sprint.id
+        )
+        assert second_row is not None
+        assert second_row["idea"] == idea
+
+        # Verify the new sprint was submitted to SLURM.
+        assert second_sprint.job_id is not None
+        assert second_sprint.job_id.isdigit()
+        assert second_row["status"] == "submitted"
+        assert second_row["job_id"] == second_sprint.job_id

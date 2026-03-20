@@ -480,6 +480,151 @@ class TestGenerateNextIdea:
 
 
 # ------------------------------------------------------------------
+# resume
+# ------------------------------------------------------------------
+
+
+class TestResume:
+    """Resuming a stopped/failed loop."""
+
+    async def test_resume_stopped_loop(self, db_with_study, sample_config):
+        """Resume submits a new sprint and sets status back to running."""
+        ctrl = _make_controller(db_with_study, sample_config)
+
+        await queries.create_auto_loop(
+            db_with_study,
+            id="loop-resume",
+            study_name="test-study",
+            total_count=3,
+        )
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-resume",
+            status="stopped",
+            completed_count=1,
+            stopped_at="2026-01-01T00:00:00Z",
+        )
+
+        sprint_id = await ctrl.resume("loop-resume")
+        assert sprint_id is not None
+
+        loop = await queries.get_auto_loop(db_with_study, "loop-resume")
+        assert loop is not None
+        assert loop["status"] == "running"
+        assert loop["stopped_at"] is None
+        assert loop["current_sprint_id"] == sprint_id
+
+    async def test_resume_failed_loop(self, db_with_study, sample_config):
+        """Can resume a failed loop too."""
+        ctrl = _make_controller(db_with_study, sample_config)
+
+        await queries.create_auto_loop(
+            db_with_study,
+            id="loop-rfail",
+            study_name="test-study",
+            total_count=3,
+        )
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-rfail",
+            status="failed",
+            completed_count=1,
+        )
+
+        sprint_id = await ctrl.resume("loop-rfail")
+        assert sprint_id is not None
+
+        loop = await queries.get_auto_loop(db_with_study, "loop-rfail")
+        assert loop is not None
+        assert loop["status"] == "running"
+
+    async def test_resume_completed_loop_raises(self, db_with_study, sample_config):
+        """Cannot resume a loop that already completed all sprints."""
+        import pytest
+
+        ctrl = _make_controller(db_with_study, sample_config)
+
+        await queries.create_auto_loop(
+            db_with_study,
+            id="loop-done",
+            study_name="test-study",
+            total_count=2,
+        )
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-done",
+            status="stopped",
+            completed_count=2,
+        )
+
+        with pytest.raises(ValueError, match="already completed"):
+            await ctrl.resume("loop-done")
+
+    async def test_resume_running_loop_raises(self, db_with_study, sample_config):
+        """Cannot resume an already-running loop."""
+        import pytest
+
+        ctrl = _make_controller(db_with_study, sample_config)
+
+        await queries.create_auto_loop(
+            db_with_study,
+            id="loop-run",
+            study_name="test-study",
+            total_count=3,
+        )
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-run",
+            status="running",
+        )
+
+        with pytest.raises(ValueError, match="Cannot resume"):
+            await ctrl.resume("loop-run")
+
+
+# ------------------------------------------------------------------
+# job_options pass-through
+# ------------------------------------------------------------------
+
+
+class TestJobOptionsPassthrough:
+    """Loop job_options stored in metadata and passed to sprints."""
+
+    async def test_start_stores_job_options(self, db_with_study, sample_config):
+        """start() with job_options stores them in metadata_json."""
+        ctrl = _make_controller(db_with_study, sample_config)
+
+        loop_id = await ctrl.start(
+            "test-study",
+            count=2,
+            job_options={"gres": "gpu:l40:1", "mem": "64G"},
+        )
+
+        loop = await queries.get_auto_loop(db_with_study, loop_id)
+        assert loop is not None
+        import json
+
+        meta = json.loads(loop["metadata_json"])
+        assert meta["job_options"] == {"gres": "gpu:l40:1", "mem": "64G"}
+
+    async def test_start_passes_job_options_to_submit(
+        self, db_with_study, sample_config
+    ):
+        """start() passes job_options to submit_sprint."""
+        ctrl = _make_controller(db_with_study, sample_config)
+
+        await ctrl.start(
+            "test-study",
+            count=2,
+            job_options={"gres": "gpu:l40:2"},
+        )
+
+        ctrl.sprint_manager.submit_sprint.assert_called_once()
+        call_kw = ctrl.sprint_manager.submit_sprint.call_args.kwargs
+        assert call_kw.get("extra_job_options") == {"gres": "gpu:l40:2"}
+
+
+# ------------------------------------------------------------------
 # allow_loop guard
 # ------------------------------------------------------------------
 
