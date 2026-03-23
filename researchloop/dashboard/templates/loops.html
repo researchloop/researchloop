@@ -9,7 +9,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-group">
       <label for="study_name">Study</label>
-      <select name="study_name" id="study_name" required>
+      <select name="study_name" id="study_name" required onchange="updateDefaults()">
         {% for s in studies %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
       </select>
     </div>
@@ -22,7 +22,7 @@
       <textarea name="context" id="context" rows="2" placeholder="e.g. Focus on X, avoid approach Y, build on results from previous sprints..."></textarea>
     </div>
     <details style="margin-bottom:0.75rem">
-      <summary class="dim" style="cursor:pointer;font-size:0.85rem">Resource overrides per sprint (optional)</summary>
+      <summary class="dim" style="cursor:pointer;font-size:0.85rem">Resource settings per sprint</summary>
       <div style="display:flex;gap:0.75rem;margin-top:0.5rem;flex-wrap:wrap">
         <div class="form-group" style="margin:0">
           <label for="gpu" style="font-size:0.8rem">GPU</label>
@@ -58,4 +58,15 @@
   {% endfor %}
   </tbody>
 </table>
+<script>
+var studyDefaults={{ study_defaults_json|safe }};
+function updateDefaults(){
+  var s=document.getElementById('study_name').value;
+  var d=studyDefaults[s]||{};
+  document.getElementById('gpu').value=d.gpu||'';
+  document.getElementById('mem').value=d.mem||'';
+  document.getElementById('cpus').value=d.cpus||'';
+}
+updateDefaults();
+</script>
 {% endblock %}

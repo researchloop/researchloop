@@ -308,6 +308,15 @@ def add_dashboard_routes(
 
         sprints = await queries.list_sprints(orchestrator.db, study_name=name, limit=50)
         prefill_idea = request.query_params.get("idea", "")
+
+        # Resolve default job_options (cluster + study merged).
+        default_opts: dict[str, str] = {}
+        for c in orchestrator.config.clusters:
+            for s in orchestrator.config.studies:
+                if s.name == name and s.cluster == c.name:
+                    default_opts = {**c.job_options, **s.job_options}
+                    break
+
         return templates.TemplateResponse(
             "study_detail.html",
             _ctx(
@@ -316,6 +325,9 @@ def add_dashboard_routes(
                 study=study,
                 sprints=sprints,
                 prefill_idea=prefill_idea,
+                default_gpu=default_opts.get("gres", ""),
+                default_mem=default_opts.get("mem", ""),
+                default_cpus=default_opts.get("cpus-per-task", ""),
             ),
         )
 
@@ -754,6 +766,20 @@ def add_dashboard_routes(
         # Only show studies that allow loops.
         loopable = {s.name for s in orchestrator.config.studies if s.allow_loop}
         study_names = [s["name"] for s in study_rows if s["name"] in loopable]
+
+        # Build per-study default job options for the form.
+        cluster_map = {c.name: c for c in orchestrator.config.clusters}
+        study_defaults: dict[str, dict[str, str]] = {}
+        for s in orchestrator.config.studies:
+            if s.name in loopable:
+                c = cluster_map.get(s.cluster)
+                opts = {**(c.job_options if c else {}), **s.job_options}
+                study_defaults[s.name] = {
+                    "gpu": opts.get("gres", ""),
+                    "mem": opts.get("mem", ""),
+                    "cpus": opts.get("cpus-per-task", ""),
+                }
+
         return templates.TemplateResponse(
             "loops.html",
             _ctx(
@@ -761,6 +787,7 @@ def add_dashboard_routes(
                 authenticated=True,
                 loops=loops,
                 studies=study_names,
+                study_defaults_json=json.dumps(study_defaults),
             ),
         )
 
