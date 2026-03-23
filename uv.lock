@@ -1165,6 +1165,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "markdown" },
     { name = "python-multipart" },
+    { name = "starlette" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1185,12 +1186,13 @@ requires-dist = [
     { name = "asyncssh", specifier = ">=2.14,<3" },
     { name = "bcrypt", specifier = ">=4.0,<5" },
     { name = "click", specifier = ">=8.0,<9" },
-    { name = "fastapi", specifier = ">=0.100,<1" },
+    { name = "fastapi", specifier = ">=0.100" },
     { name = "httpx", specifier = ">=0.24,<1" },
     { name = "itsdangerous", specifier = ">=2.1,<3" },
     { name = "jinja2", specifier = ">=3.1,<4" },
     { name = "markdown", specifier = ">=3.4,<4" },
     { name = "python-multipart", specifier = ">=0.0.6,<1" },
+    { name = "starlette", specifier = "<1" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0,<3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.20,<1" },
 ]
