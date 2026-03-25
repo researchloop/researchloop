@@ -71,7 +71,7 @@ jobs:
         run: docker build -t researchloop-sge-test tests/docker/sge/
 
       - name: Run integration tests
-        run: uv run pytest tests/integration/ -v --tb=short -x --timeout=120
+        run: uv run pytest tests/integration/ -v --tb=short -x --timeout=180
         env:
           SLURM_TEST_IMAGE: researchloop-slurm-test
           SGE_TEST_IMAGE: researchloop-sge-test

@@ -341,13 +341,13 @@ def sge_container(
     container_id = result.stdout.strip()
 
     try:
-        _wait_for_port("localhost", ssh_port, timeout=90)
-        time.sleep(5)  # SGE init takes longer than SLURM
+        _wait_for_port("localhost", ssh_port, timeout=120)
+        time.sleep(10)  # SGE install + init takes longer than SLURM
         _wait_for_ssh(
             "localhost",
             ssh_port,
             str(ssh_key_pair[0]),
-            timeout=60,
+            timeout=90,
         )
         yield {
             "host": "localhost",
