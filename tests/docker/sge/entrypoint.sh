@@ -34,6 +34,19 @@ if [ -f /etc/profile.d/sge_settings.sh ]; then
     # Make SGE commands available via SSH sessions.
     echo "PermitUserEnvironment yes" >> /etc/ssh/sshd_config
 
+    # Add SGE to system-wide environment and sgeuser's bashrc.
+    echo "PATH=$PATH" > /etc/environment
+    echo ". /etc/profile.d/sge_settings.sh 2>/dev/null || true" >> /home/sgeuser/.bashrc
+    echo ". /etc/profile.d/sge_settings.sh 2>/dev/null || true" >> /root/.bashrc
+
+    # Also create symlinks so SGE commands are on default PATH.
+    SGE_BIN="$SGE_ROOT/bin/$($SGE_ROOT/util/arch 2>/dev/null || echo lx-amd64)"
+    if [ -d "$SGE_BIN" ]; then
+        for cmd in qsub qstat qdel qconf qacct; do
+            [ -f "$SGE_BIN/$cmd" ] && ln -sf "$SGE_BIN/$cmd" /usr/local/bin/$cmd
+        done
+    fi
+
     for homedir in /root /home/sgeuser; do
         mkdir -p "$homedir/.ssh"
         cat > "$homedir/.ssh/environment" << ENVEOF
@@ -46,7 +59,7 @@ PATH=$PATH
 ENVEOF
         chmod 600 "$homedir/.ssh/environment"
     done
-    chown -R sgeuser:sgeuser /home/sgeuser/.ssh 2>/dev/null || true
+    chown -R sgeuser:sgeuser /home/sgeuser 2>/dev/null || true
 else
     echo "WARNING: SGE settings not found, SGE may not be available"
 fi
