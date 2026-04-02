@@ -530,19 +530,20 @@ def add_dashboard_routes(
                         _, _, pdf_rc = await ssh.run(f"test -f {pdf_path}")
                         has_pdf = pdf_rc == 0
 
-                        # If PDF exists, download it locally.
+                        # If PDF exists, download it locally (always
+                        # re-download so regenerated PDFs are picked up).
                         if has_pdf:
                             art_dir = Path(orchestrator.config.artifact_dir) / sprint_id
                             art_dir.mkdir(parents=True, exist_ok=True)
                             local_pdf = art_dir / "report.pdf"
-                            if not local_pdf.exists():
-                                try:
-                                    await ssh.download_file(
-                                        pdf_path,
-                                        str(local_pdf),
-                                    )
-                                except Exception:
-                                    logger.warning("PDF download failed")
+                            try:
+                                await ssh.download_file(
+                                    pdf_path,
+                                    str(local_pdf),
+                                )
+                            except Exception:
+                                logger.warning("PDF download failed")
+                                if not local_pdf.exists():
                                     has_pdf = False
 
                         # Detect current pipeline step from log.
