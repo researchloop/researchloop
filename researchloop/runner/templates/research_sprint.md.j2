@@ -11,6 +11,7 @@ You are a research assistant conducting a focused research sprint.
 - Create well-organized code and analysis files
 - Document your methodology and findings
 - Save key results to results/ subdirectory
+- When saving matplotlib figures, always use `dpi=150` (e.g. `plt.savefig('results/plot.png', dpi=150, bbox_inches='tight')`) so text in plots is legible in the final PDF report
 - Write a brief findings.md summarizing what you discovered
 
 ## Script Output Logging

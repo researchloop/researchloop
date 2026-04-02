@@ -28,4 +28,34 @@ After writing report.md, create `report.pdf` in the current directory using Pyth
   - Tables where the data warrants it
 - The PDF should look like a proper research report
 
+**Critical layout rules** — past PDFs have had text clipped at the right edge and table columns overlapping. Follow these rules strictly:
+
+**Page setup:**
+- US Letter (8.5 × 11 in). Define margins: LEFT=1.0 in, RIGHT=1.0 in, TOP=1.0 in, BOTTOM=1.0 in
+- `fig.subplots_adjust(left=0, right=1, top=1, bottom=0)` — position everything yourself via `ax.text()` using figure-fraction coordinates
+- Convert margins to figure fractions: x_left = LEFT/8.5, x_right = 1 - RIGHT/8.5, y_top = 1 - TOP/11, y_bottom = BOTTOM/11
+
+**Text wrapping — this is the most common source of bugs:**
+- At 10pt font on a 6.5-inch text area, **wrap at width=90 characters max** (not 80 — proportional fonts are narrower than monospace). Test: the longest line in each wrapped paragraph must fit within x_left to x_right
+- Wrap ALL text before rendering — body paragraphs, bullet points, titles. Use `textwrap.fill(text, width=90)`. Never pass an unwrapped string to `ax.text()`
+- For long titles, wrap at ~60 chars (larger font = fewer chars per line)
+
+**Tables — do NOT render tables as monospace text blocks:**
+- Use `ax.table(cellText=..., colLabels=..., colWidths=..., loc='top', cellLoc='left')` to create real table objects
+- Set `table.auto_set_font_size(False)` and `table.set_fontsize(8)`
+- Set explicit `colWidths` that sum to the text-area fraction (x_right - x_left). Allocate width proportionally to content
+- Pre-wrap long cell values with `textwrap.fill(cell, width=N)` where N fits the column width
+- Style: remove outer edges, add subtle row shading or gridlines for readability
+- If a table has many columns (>6), use font size 7 and/or landscape orientation for that page
+
+**Images:**
+- When generating plots earlier in the pipeline, save at **dpi=150 or higher** so text in plots is sharp in the PDF
+- When embedding in the PDF figure, use `ax.imshow(img, extent=[x_left, x_right, y_low, y_high], aspect='auto')` or insert via `fig.figimage()`. Scale to fit within margins while preserving aspect ratio
+- Do NOT downscale high-res images — matplotlib's PdfPages will embed them at their native resolution
+- Leave space above/below for captions
+
+**Pagination:**
+- Track y_cursor starting at y_top, decrementing after each element
+- When y_cursor < y_bottom + 0.05, save the page and start a new one
+
 If matplotlib is not available or PDF generation fails, skip this step — report.md is the primary output.
