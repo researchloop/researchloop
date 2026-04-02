@@ -11,7 +11,7 @@
   <dl>
     <dt>Study</dt><dd><a href="/dashboard/studies/{{ sprint.study_name }}">{{ sprint.study_name }}</a></dd>
     <dt>Status</dt><dd id="sprint-status"><span class="badge badge-{{ sprint.status.split(' ')[0] }}">{{ sprint.status }}</span></dd>
-    <dt>Idea</dt><dd id="sprint-idea">{% if sprint.idea %}<div class="report-content">{{ sprint.idea|markdown|safe }}</div>{% elif sprint.loop_id and sprint.status not in ('completed', 'failed', 'cancelled') %}<span class="dim" style="font-style:italic">auto-generating idea...</span>{% elif sprint.summary %}<span class="dim">{{ sprint.summary[:120] }}{% if sprint.summary|length > 120 %}…{% endif %}</span>{% else %}—{% endif %}</dd>
+    <dt>Idea</dt><dd id="sprint-idea">{% if sprint.idea %}{{ sprint.idea[:120] }}{% if sprint.idea|length > 120 %}…{% endif %}{% elif sprint.loop_id and sprint.status not in ('completed', 'failed', 'cancelled') %}<span class="dim" style="font-style:italic">auto-generating idea...</span>{% elif sprint.summary %}<span class="dim">{{ sprint.summary[:120] }}{% if sprint.summary|length > 120 %}…{% endif %}</span>{% else %}—{% endif %}</dd>
     {% if sprint.loop_id %}<dt>Loop</dt><dd><a href="/dashboard/loops/{{ sprint.loop_id }}">{{ sprint.loop_id }}</a></dd>{% endif %}
     <dt>Job ID</dt><dd>{{ sprint.job_id or '—' }}</dd>
     <dt>Directory</dt><dd class="dim">{{ sprint.directory or '—' }}</dd>
@@ -39,7 +39,7 @@
       </form>
       {% endif %}
       {% if sprint.idea %}
-      <a href="/dashboard/studies/{{ sprint.study_name }}?idea={{ sprint.idea|urlencode }}" class="btn btn-sm" style="text-decoration:none">Copy</a>
+      <button type="button" class="btn btn-sm" id="copy-prompt-btn" onclick="copyPrompt()">Copy prompt</button>
       {% endif %}
     </div>
     {% if has_pdf %}
@@ -51,6 +51,11 @@
 {% if sprint.summary %}
 <h3>Summary</h3>
 <div class="card" id="summary-section"><p>{{ sprint.summary }}</p></div>
+{% endif %}
+
+{% if sprint.idea %}
+<h3>Prompt</h3>
+<div class="card report-content" id="prompt-section">{{ sprint.idea|markdown|safe }}</div>
 {% endif %}
 
 {% if progress %}
@@ -103,6 +108,16 @@
 {% endif %}
 <script>
 var csrfToken='{{ csrf_token }}';
+{% if sprint.idea %}
+var rawPrompt={{ sprint.idea|tojson }};
+function copyPrompt(){
+  navigator.clipboard.writeText(rawPrompt).then(function(){
+    var btn=document.getElementById('copy-prompt-btn');
+    btn.textContent='Copied!';
+    setTimeout(function(){btn.textContent='Copy prompt';},2000);
+  });
+}
+{% endif %}
 function refreshSprint(){
   var btn=document.getElementById('refresh-btn');
   btn.innerHTML='<span class="spinning" style="display:inline-block">&#8635;</span> Refreshing...';
