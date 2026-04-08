@@ -90,9 +90,7 @@ class TestTweakQueries:
             schedulers={},
         )
         sprint = await mgr.create_sprint("test-study", "idea")
-        await queries.create_tweak(
-            db_with_study, "tw-get001", sprint.id, "instruction"
-        )
+        await queries.create_tweak(db_with_study, "tw-get001", sprint.id, "instruction")
         row = await queries.get_tweak(db_with_study, "tw-get001")
         assert row is not None
         assert row["id"] == "tw-get001"
@@ -108,12 +106,8 @@ class TestTweakQueries:
             schedulers={},
         )
         sprint = await mgr.create_sprint("test-study", "idea")
-        await queries.create_tweak(
-            db_with_study, "tw-list01", sprint.id, "first"
-        )
-        await queries.create_tweak(
-            db_with_study, "tw-list02", sprint.id, "second"
-        )
+        await queries.create_tweak(db_with_study, "tw-list01", sprint.id, "first")
+        await queries.create_tweak(db_with_study, "tw-list02", sprint.id, "second")
         tweaks = await queries.list_tweaks(db_with_study, sprint.id)
         assert len(tweaks) == 2
 
@@ -125,9 +119,7 @@ class TestTweakQueries:
             schedulers={},
         )
         sprint = await mgr.create_sprint("test-study", "idea")
-        await queries.create_tweak(
-            db_with_study, "tw-upd001", sprint.id, "instruction"
-        )
+        await queries.create_tweak(db_with_study, "tw-upd001", sprint.id, "instruction")
         await queries.update_tweak(
             db_with_study, "tw-upd001", status="completed", job_id="12345"
         )
@@ -143,9 +135,7 @@ class TestTweakQueries:
 
 
 class TestSubmitTweak:
-    async def test_submit_tweak_on_completed_sprint(
-        self, db_with_study, tmp_path
-    ):
+    async def test_submit_tweak_on_completed_sprint(self, db_with_study, tmp_path):
         """Happy path: submit a tweak on a completed sprint."""
         config = _tweak_config(tmp_path)
         ssh_mock = AsyncMock()
@@ -198,9 +188,7 @@ class TestSubmitTweak:
         except ValueError as e:
             assert "not completed" in str(e)
 
-    async def test_submit_tweak_rejects_active_tweak(
-        self, db_with_study, tmp_path
-    ):
+    async def test_submit_tweak_rejects_active_tweak(self, db_with_study, tmp_path):
         """Should reject if there's already an active tweak."""
         config = _tweak_config(tmp_path)
         ssh_mock = AsyncMock()
@@ -243,9 +231,7 @@ class TestHandleTweakCompletion:
             schedulers={},
         )
         sprint = await mgr.create_sprint("test-study", "idea")
-        await queries.create_tweak(
-            db_with_study, "tw-comp01", sprint.id, "fix plots"
-        )
+        await queries.create_tweak(db_with_study, "tw-comp01", sprint.id, "fix plots")
 
         await mgr.handle_tweak_completion(
             tweak_id="tw-comp01",
@@ -258,9 +244,7 @@ class TestHandleTweakCompletion:
         assert tweak["status"] == "completed"
         assert tweak["completed_at"] is not None
 
-    async def test_handle_tweak_completion_failed(
-        self, db_with_study, sample_config
-    ):
+    async def test_handle_tweak_completion_failed(self, db_with_study, sample_config):
         mgr = SprintManager(
             db=db_with_study,
             config=sample_config,
@@ -268,9 +252,7 @@ class TestHandleTweakCompletion:
             schedulers={},
         )
         sprint = await mgr.create_sprint("test-study", "idea")
-        await queries.create_tweak(
-            db_with_study, "tw-fail01", sprint.id, "bad tweak"
-        )
+        await queries.create_tweak(db_with_study, "tw-fail01", sprint.id, "bad tweak")
 
         await mgr.handle_tweak_completion(
             tweak_id="tw-fail01",
@@ -381,9 +363,7 @@ class TestTweakDashboard:
             await queries.create_sprint(
                 orch.db, "sp-twk-vis", "test-study", "some idea"
             )
-            await queries.update_sprint(
-                orch.db, "sp-twk-vis", status="completed"
-            )
+            await queries.update_sprint(orch.db, "sp-twk-vis", status="completed")
 
             resp = client.get(
                 "/dashboard/sprints/sp-twk-vis",
@@ -435,9 +415,7 @@ class TestTweakDashboard:
             await queries.create_sprint(
                 orch.db, "sp-twk-run", "test-study", "running idea"
             )
-            await queries.update_sprint(
-                orch.db, "sp-twk-run", status="running"
-            )
+            await queries.update_sprint(orch.db, "sp-twk-run", status="running")
 
             resp = client.get(
                 "/dashboard/sprints/sp-twk-run",
@@ -480,9 +458,7 @@ class TestTweakWebhook:
             )
             token = row["webhook_token"]
 
-            await queries.create_tweak(
-                orch.db, "tw-wh-001", "sp-twk-wh", "fix labels"
-            )
+            await queries.create_tweak(orch.db, "tw-wh-001", "sp-twk-wh", "fix labels")
 
             resp = client.post(
                 "/api/webhook/sprint-complete",

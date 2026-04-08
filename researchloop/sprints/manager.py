@@ -673,9 +673,7 @@ class SprintManager:
             if resolved is None:
                 return None
             ssh, sprint_path = resolved
-            stdout, _, rc = await ssh.run(
-                f"cat {sprint_path}/idea.txt 2>/dev/null"
-            )
+            stdout, _, rc = await ssh.run(f"cat {sprint_path}/idea.txt 2>/dev/null")
             if rc == 0 and stdout.strip():
                 return stdout.strip()
             return None
@@ -876,9 +874,7 @@ class SprintManager:
         if scheduler is None:
             scheduler = self.schedulers.get(cluster_cfg.scheduler_type)
         if scheduler is None:
-            raise ValueError(
-                f"No scheduler for cluster {cluster_cfg.name!r}"
-            )
+            raise ValueError(f"No scheduler for cluster {cluster_cfg.name!r}")
 
         # Create tweak record.
         tweak_id = generate_tweak_id()

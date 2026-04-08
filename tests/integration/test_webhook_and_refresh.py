@@ -606,12 +606,10 @@ class TestWebhookCompletionFetchesResults:
                 f"> {sprint_path}/report.md"
             )
             await conn.run(
-                f"printf '## Findings\\nFound X and Y' "
-                f"> {sprint_path}/findings.md"
+                f"printf '## Findings\\nFound X and Y' > {sprint_path}/findings.md"
             )
             await conn.run(
-                f"printf '## Progress\\n- All steps done' "
-                f"> {sprint_path}/progress.md"
+                f"printf '## Progress\\n- All steps done' > {sprint_path}/progress.md"
             )
 
             # Simulate webhook calling handle_completion.

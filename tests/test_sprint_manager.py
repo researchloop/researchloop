@@ -268,9 +268,7 @@ class TestSprintManagerCompletion:
             study_manager=study_mgr,
         )
         sprint = await mgr.create_sprint("test-study", "idea")
-        await mgr.handle_completion(
-            sprint.id, status="completed", summary="Done!"
-        )
+        await mgr.handle_completion(sprint.id, status="completed", summary="Done!")
 
         row = await queries.get_sprint(db_with_study, sprint.id)
         assert row["status"] == "completed"
@@ -295,9 +293,7 @@ class TestSprintManagerCompletion:
             study_manager=None,
         )
         sprint = await mgr.create_sprint("test-study", "idea")
-        await mgr.handle_completion(
-            sprint.id, status="completed", summary="Done!"
-        )
+        await mgr.handle_completion(sprint.id, status="completed", summary="Done!")
 
         row = await queries.get_sprint(db_with_study, sprint.id)
         assert row["status"] == "completed"

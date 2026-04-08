@@ -369,8 +369,7 @@ def add_dashboard_routes(
 
         # Check if any tweak is currently active.
         tweak_active = any(
-            t["status"] in ("pending", "submitted", "running")
-            for t in tweaks
+            t["status"] in ("pending", "submitted", "running") for t in tweaks
         )
 
         # Extract structured data from metadata_json.
