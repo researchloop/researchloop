@@ -825,6 +825,8 @@ class SprintManager:
         self,
         sprint_id: str,
         instruction: str,
+        job_options: dict[str, str] | None = None,
+        time_limit: str = "2:00:00",
     ) -> str:
         """Submit a quick tweak job for a completed sprint.
 
@@ -918,11 +920,12 @@ class SprintManager:
             tweak_id=tweak_id,
             sprint_dir=sprint_remote_dir,
             job_name=f"rl-{tweak_id}",
-            time_limit="2:00:00",
+            time_limit=time_limit,
             environment=cluster_cfg.environment,
             job_options={
                 **cluster_cfg.job_options,
                 **(study_cfg.job_options if study_cfg else {}),
+                **(job_options or {}),
             },
             claude_command=(
                 (study_cfg.claude_command if study_cfg else "")

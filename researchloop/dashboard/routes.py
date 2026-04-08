@@ -393,6 +393,15 @@ def add_dashboard_routes(
             except (json.JSONDecodeError, TypeError):
                 pass
 
+        # Resolve default job_options for tweak resource settings.
+        default_opts: dict[str, str] = {}
+        study_name = sprint["study_name"]
+        for c in orchestrator.config.clusters:
+            for s in orchestrator.config.studies:
+                if s.name == study_name and s.cluster == c.name:
+                    default_opts = {**c.job_options, **s.job_options}
+                    break
+
         return templates.TemplateResponse(
             "sprint_detail.html",
             _ctx(
@@ -408,6 +417,9 @@ def add_dashboard_routes(
                 red_team=red_team,
                 fixes=fixes,
                 progress=progress,
+                default_gpu=default_opts.get("gres", ""),
+                default_mem=default_opts.get("mem", ""),
+                default_cpus=default_opts.get("cpus-per-task", ""),
             ),
         )
 
@@ -746,8 +758,16 @@ def add_dashboard_routes(
                 status_code=303,
             )
 
+        job_opts = _parse_job_options(form)
+        time_limit = str(form.get("time_limit", "")).strip() or "2:00:00"
+
         try:
-            await orchestrator.sprint_manager.submit_tweak(sprint_id, instruction)
+            await orchestrator.sprint_manager.submit_tweak(
+                sprint_id,
+                instruction,
+                job_options=job_opts or None,
+                time_limit=time_limit,
+            )
         except Exception as exc:
             logger.warning("Tweak submission failed: %s", exc)
 
