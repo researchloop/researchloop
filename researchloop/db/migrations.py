@@ -80,6 +80,19 @@ CREATE TABLE IF NOT EXISTS events (
     FOREIGN KEY (sprint_id) REFERENCES sprints(id)
 );
 
+CREATE TABLE IF NOT EXISTS tweaks (
+    id TEXT PRIMARY KEY,
+    sprint_id TEXT NOT NULL REFERENCES sprints(id),
+    instruction TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    job_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    started_at TEXT,
+    completed_at TEXT,
+    error TEXT,
+    FOREIGN KEY (sprint_id) REFERENCES sprints(id)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -91,6 +104,7 @@ CREATE INDEX IF NOT EXISTS idx_sprints_study_name ON sprints(study_name);
 CREATE INDEX IF NOT EXISTS idx_sprints_status ON sprints(status);
 CREATE INDEX IF NOT EXISTS idx_events_sprint_id ON events(sprint_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_sprint_id ON artifacts(sprint_id);
+CREATE INDEX IF NOT EXISTS idx_tweaks_sprint_id ON tweaks(sprint_id);
 """
 
 

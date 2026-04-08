@@ -30,7 +30,7 @@ Python 3.10+, uv, asyncio throughout. Key deps: click (CLI), FastAPI (API + dash
 
 ```bash
 uv sync                              # install deps
-uv run pytest tests/ -v -m "not integration"  # unit tests (339 tests, ~3s)
+uv run pytest tests/ -v -m "not integration"  # unit tests (374 tests, ~3s)
 uv run pytest tests/integration/ -v --timeout=120  # integration tests (needs Docker)
 uv run ruff check .                  # lint
 uv run ruff format .                 # format
@@ -116,7 +116,7 @@ researchloop/
 
 ## Database
 
-SQLite with 7 tables: `studies`, `sprints`, `auto_loops`, `artifacts`, `slack_sessions`, `events`, `settings`. Schema in `db/migrations.py`. All queries in `db/queries.py` use parameterized SQL and return plain dicts.
+SQLite with 8 tables: `studies`, `sprints`, `tweaks`, `auto_loops`, `artifacts`, `slack_sessions`, `events`, `settings`. Schema in `db/migrations.py`. All queries in `db/queries.py` use parameterized SQL and return plain dicts.
 
 Key columns:
 - `sprints.webhook_token` — per-sprint token for webhook auth (generated at creation)
@@ -124,6 +124,8 @@ Key columns:
 - `sprints.metadata_json` — stores report text, has_pdf flag, heartbeat info
 - `sprints.error` — stores live progress (progress.md + output.log + tool log) during running sprints
 - `auto_loops.metadata_json` — stores loop context and job_options
+- `tweaks.sprint_id` — links tweak to parent sprint (one sprint can have many tweaks)
+- `tweaks.instruction` — the user's tweak request text
 - `settings` — key/value store for signing_key and dashboard_password_hash
 
 ## Key patterns

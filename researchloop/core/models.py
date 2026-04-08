@@ -32,6 +32,11 @@ def generate_sprint_id() -> str:
     return f"sp-{secrets.token_hex(3)}"
 
 
+def generate_tweak_id() -> str:
+    """Generate a short hex tweak ID like ``tw-a3f7b2``."""
+    return f"tw-{secrets.token_hex(3)}"
+
+
 def format_sprint_dirname(sprint_id: str, idea: str | None) -> str:
     """Create a directory name for a sprint.
 

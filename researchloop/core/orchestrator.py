@@ -395,11 +395,30 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         summary: str | None = body.get("summary")
         error: str | None = body.get("error")
         idea: str | None = body.get("idea")
+        tweak_id: str | None = body.get("tweak_id")
 
         if not sprint_id:
             raise HTTPException(status_code=400, detail="sprint_id is required")
 
         assert orchestrator.sprint_manager is not None
+
+        # Route to tweak completion if tweak_id is present.
+        if tweak_id:
+            await orchestrator.sprint_manager.handle_tweak_completion(
+                tweak_id=tweak_id,
+                sprint_id=sprint_id,
+                status=status,
+                error=error,
+            )
+            logger.info(
+                "Webhook: tweak %s completion processed (status=%s)",
+                tweak_id,
+                status,
+            )
+            return JSONResponse(
+                {"ok": True, "sprint_id": sprint_id, "tweak_id": tweak_id}
+            )
+
         await orchestrator.sprint_manager.handle_completion(
             sprint_id=sprint_id,
             status=status,

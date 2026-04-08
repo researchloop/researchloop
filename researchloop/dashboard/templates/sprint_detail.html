@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ sprint.id }} — ResearchLoop{% endblock %}
 {% block head %}
-{% if sprint.status.startswith('running') or sprint.status == 'submitted' %}
+{% if sprint.status.startswith('running') or sprint.status == 'submitted' or tweak_active %}
 <script>setTimeout(function(){refreshSprint()},30000);</script>
 {% endif %}
 {% endblock %}
@@ -88,6 +88,41 @@
 <div class="card">
   <pre style="white-space: pre-wrap; word-wrap: break-word; color: #94a3b8; max-height: 400px; overflow-y: auto;">{{ sprint.error }}</pre>
 </div>
+{% endif %}
+
+{% if sprint.status == 'completed' %}
+<h3>Quick Tweak</h3>
+<div class="card">
+  {% if tweak_active %}
+  <p class="dim" style="font-style:italic">A tweak is currently running…</p>
+  {% else %}
+  <form method="post" action="/dashboard/sprints/{{ sprint.id }}/tweak"
+        onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Submitting...';">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-group">
+      <textarea name="instruction" rows="3" placeholder="e.g. Fix the axis labels on the scatter plots, add a histogram of residuals"></textarea>
+    </div>
+    <button type="submit" class="btn btn-sm">Submit tweak</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if tweaks %}
+<h3>Tweaks</h3>
+<table>
+  <thead><tr><th>ID</th><th>Instruction</th><th>Status</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for t in tweaks %}
+    <tr>
+      <td>{{ t.id }}</td>
+      <td>{{ t.instruction[:80] }}{% if t.instruction|length > 80 %}…{% endif %}</td>
+      <td><span class="badge badge-{{ t.status.split(' ')[0] }}">{{ t.status }}</span></td>
+      <td class="dim">{{ t.created_at }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
 {% endif %}
 
 {% if artifacts %}

@@ -1,0 +1,184 @@
+#!/bin/bash
+#SBATCH --job-name={{ job_name }}
+#SBATCH --output={{ sprint_dir }}/slurm-tweak-%j.out
+#SBATCH --error={{ sprint_dir }}/slurm-tweak-%j.err
+#SBATCH --time={{ time_limit }}
+{% for key, value in job_options.items() %}
+#SBATCH --{{ key }}={{ value }}
+{% endfor %}
+
+set -euo pipefail
+
+# Source user's shell profile so tools like claude are on PATH.
+if [ -f "$HOME/.bashrc" ]; then
+    set +euo pipefail
+    source "$HOME/.bashrc"
+    set -euo pipefail
+elif [ -f "$HOME/.profile" ]; then
+    set +euo pipefail
+    source "$HOME/.profile"
+    set -euo pipefail
+fi
+export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
+
+# --- Environment ---
+{% for key, value in environment.items() %}
+export {{ key }}="{{ value }}"
+{% endfor %}
+
+SPRINT_ID="{{ sprint_id }}"
+TWEAK_ID="{{ tweak_id }}"
+SPRINT_DIR="{{ sprint_dir }}"
+ORCHESTRATOR_URL="{{ orchestrator_url }}"
+WEBHOOK_TOKEN="{{ webhook_token }}"
+CLAUDE_CMD="{{ claude_command }}"
+
+cd "$SPRINT_DIR"
+mkdir -p .researchloop results
+
+echo "=== ResearchLoop Tweak $TWEAK_ID (Sprint $SPRINT_ID) ==="
+echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# --- Logging ---
+LOG_FILE="$SPRINT_DIR/sprint_log.txt"
+touch "$LOG_FILE"
+
+log() {
+    local msg="[$(date -u +%H:%M:%S)] $1"
+    echo "$msg" | tee -a "$LOG_FILE"
+}
+
+# --- Helper: run claude and extract session ID ---
+SESSION_ID=""
+if [ -f "$SPRINT_DIR/.researchloop/session_id" ]; then
+    SESSION_ID=$(cat "$SPRINT_DIR/.researchloop/session_id")
+fi
+
+run_step() {
+    local prompt_file="$1"
+    local step_name="$2"
+    log ">>> Starting step: $step_name"
+    echo ">>> Step: $step_name"
+
+    local cmd=($CLAUDE_CMD -p "$(cat "$prompt_file")" --output-format stream-json --verbose)
+    if [ -n "$SESSION_ID" ]; then
+        cmd+=(--resume "$SESSION_ID")
+    fi
+
+    local output_file="$SPRINT_DIR/.researchloop/${step_name}_output.jsonl"
+    "${cmd[@]}" 2> >(tee -a "$LOG_FILE" >&2) | tee "$output_file" | python3 -u -c "
+import sys, json, os
+log = open('$LOG_FILE', 'a', buffering=1)
+tool_count = 0
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        evt = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    t = evt.get('type', '')
+    if t == 'assistant' and 'content' in evt:
+        for block in evt['content']:
+            bt = block.get('type', '')
+            if bt == 'tool_use':
+                tool = block.get('name', '?')
+                inp = block.get('input', {})
+                tool_count += 1
+                if tool in ('Write', 'Edit'):
+                    path = inp.get('file_path', '?')
+                    fname = os.path.basename(path)
+                    summary = f'{tool} {fname}'
+                elif tool == 'Bash':
+                    cmd_str = inp.get('command', '')[:80].split('\n')[0]
+                    summary = f'$ {cmd_str}'
+                elif tool == 'Read':
+                    path = inp.get('file_path', '?')
+                    fname = os.path.basename(path)
+                    summary = f'Read {fname}'
+                else:
+                    summary = tool
+                log.write(f'  [{tool_count}] {summary}\n')
+                log.flush()
+    elif t == 'result':
+        sid = evt.get('session_id', '')
+        if sid:
+            open('$SPRINT_DIR/.researchloop/session_id', 'w').write(sid)
+        result = evt.get('result', '') or ''
+        log.write(f'  Done ({tool_count} tool calls, {len(result)} chars output)\n')
+        log.flush()
+log.close()
+" || {
+        local rc=$?
+        log "ERROR: Claude failed on step $step_name (exit $rc)"
+        tail -20 "$output_file" >> "$LOG_FILE" 2>/dev/null
+        return 1
+    }
+
+    if [ -f "$SPRINT_DIR/.researchloop/session_id" ]; then
+        SESSION_ID=$(cat "$SPRINT_DIR/.researchloop/session_id")
+    fi
+
+    log "<<< Step $step_name complete"
+    echo "<<< Step $step_name complete"
+}
+
+# --- Helper: send webhook ---
+send_webhook() {
+    local status="$1"
+    local error="${2:-}"
+    if [ -z "$ORCHESTRATOR_URL" ]; then return; fi
+    local payload
+    payload=$(python3 -c "
+import json, sys
+print(json.dumps({
+    'sprint_id': '$SPRINT_ID',
+    'tweak_id': '$TWEAK_ID',
+    'status': sys.argv[1],
+    'error': sys.argv[2] or None,
+}))
+" "$status" "$error" 2>/dev/null)
+    for attempt in 1 2 3; do
+        if curl -s --max-time 30 -X POST \
+            "$ORCHESTRATOR_URL/api/webhook/sprint-complete" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_TOKEN" \
+            -d "$payload" > /dev/null 2>&1; then
+            log "Webhook sent (attempt $attempt)"
+            return
+        fi
+        log "Webhook attempt $attempt failed, retrying in 10s..."
+        sleep 10
+    done
+    log "WARNING: Webhook failed after 3 attempts"
+}
+
+# --- Write prompt files ---
+{% for prompt in prompts %}
+echo '{{ prompt.content_b64 }}' | base64 -d > "$SPRINT_DIR/.researchloop/{{ prompt.filename }}"
+{% endfor %}
+
+# --- Pipeline: tweak + report ---
+FINAL_STATUS="completed"
+ERROR_MSG=""
+
+# Step 1: Apply tweak
+if ! run_step "$SPRINT_DIR/.researchloop/prompt_tweak.md" "tweak"; then
+    FINAL_STATUS="failed"
+    ERROR_MSG="Tweak step failed"
+fi
+
+# Step 2: Regenerate report
+if [ "$FINAL_STATUS" = "completed" ]; then
+    if ! run_step "$SPRINT_DIR/.researchloop/prompt_report.md" "report"; then
+        FINAL_STATUS="failed"
+        ERROR_MSG="Report regeneration failed"
+    fi
+fi
+
+# Send completion webhook
+send_webhook "$FINAL_STATUS" "$ERROR_MSG"
+
+echo "Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ) (status: $FINAL_STATUS)"
+[ "$FINAL_STATUS" = "completed" ] && exit 0 || exit 1

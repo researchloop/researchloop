@@ -48,6 +48,20 @@ _SPRINT_COLUMNS: frozenset[str] = frozenset(
     }
 )
 
+_TWEAK_COLUMNS: frozenset[str] = frozenset(
+    {
+        "id",
+        "sprint_id",
+        "instruction",
+        "status",
+        "job_id",
+        "created_at",
+        "started_at",
+        "completed_at",
+        "error",
+    }
+)
+
 _AUTO_LOOP_COLUMNS: frozenset[str] = frozenset(
     {
         "id",
@@ -349,3 +363,56 @@ async def list_events(
         "SELECT * FROM events ORDER BY created_at DESC LIMIT ?",
         (limit,),
     )
+
+
+# ---------------------------------------------------------------------------
+# Tweaks
+# ---------------------------------------------------------------------------
+
+
+async def create_tweak(
+    db: Database,
+    id: str,
+    sprint_id: str,
+    instruction: str,
+) -> dict[str, Any]:
+    """Insert a new tweak and return it."""
+    await db.execute(
+        """
+        INSERT INTO tweaks (id, sprint_id, instruction)
+        VALUES (?, ?, ?)
+        """,
+        (id, sprint_id, instruction),
+    )
+    return await get_tweak(db, id)  # type: ignore[return-value]
+
+
+async def get_tweak(db: Database, id: str) -> dict[str, Any] | None:
+    """Return a single tweak by id, or ``None``."""
+    return await db.fetch_one("SELECT * FROM tweaks WHERE id = ?", (id,))
+
+
+async def list_tweaks(
+    db: Database,
+    sprint_id: str,
+) -> list[dict[str, Any]]:
+    """Return all tweaks for a sprint, newest first."""
+    return await db.fetch_all(
+        "SELECT * FROM tweaks WHERE sprint_id = ? ORDER BY created_at DESC",
+        (sprint_id,),
+    )
+
+
+async def update_tweak(db: Database, id: str, **kwargs: Any) -> dict[str, Any] | None:
+    """Update arbitrary columns on a tweak.  Returns the updated row."""
+    if not kwargs:
+        return await get_tweak(db, id)
+    _validate_columns(kwargs, _TWEAK_COLUMNS, "tweak")
+    columns = ", ".join(f"{k} = ?" for k in kwargs)
+    values = list(kwargs.values())
+    values.append(id)
+    await db.execute(
+        f"UPDATE tweaks SET {columns} WHERE id = ?",
+        values,
+    )
+    return await get_tweak(db, id)

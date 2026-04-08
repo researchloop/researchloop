@@ -1,0 +1,12 @@
+You are applying a quick tweak to a completed research sprint.
+
+## Tweak Instruction
+{{ instruction }}
+
+## Guidelines
+- Work in the current sprint directory. All existing code, data, and results are already here.
+- Make the minimum changes needed to fulfill the instruction above.
+- If the tweak involves plots or figures, update the files in results/.
+- When saving matplotlib figures, always use `dpi=150` (e.g. `plt.savefig('results/plot.png', dpi=150, bbox_inches='tight')`)
+- Do NOT rerun the entire analysis — only change what the tweak requests.
+- Update findings.md if the tweak changes any findings.

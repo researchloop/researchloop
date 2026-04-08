@@ -365,6 +365,13 @@ def add_dashboard_routes(
             raise HTTPException(status_code=404, detail="Sprint not found")
 
         artifacts = await queries.list_artifacts(orchestrator.db, sprint_id)
+        tweaks = await queries.list_tweaks(orchestrator.db, sprint_id)
+
+        # Check if any tweak is currently active.
+        tweak_active = any(
+            t["status"] in ("pending", "submitted", "running")
+            for t in tweaks
+        )
 
         # Extract structured data from metadata_json.
         report = None
@@ -393,6 +400,8 @@ def add_dashboard_routes(
                 authenticated=True,
                 sprint=sprint,
                 artifacts=artifacts,
+                tweaks=tweaks,
+                tweak_active=tweak_active,
                 report=report,
                 has_pdf=has_pdf,
                 findings=findings,
@@ -719,6 +728,33 @@ def add_dashboard_routes(
                 f"/dashboard/sprints/{sprint_id}",
                 status_code=303,
             )
+
+    @app.post("/dashboard/sprints/{sprint_id}/tweak")
+    async def dashboard_sprint_tweak(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
+        """Submit a quick tweak for a completed sprint."""
+        if redir := await _gate(request):
+            return redir
+        await _check_csrf(request)
+        assert orchestrator.sprint_manager is not None
+
+        form = await request.form()
+        instruction = str(form.get("instruction", "")).strip()
+
+        if not instruction:
+            return RedirectResponse(
+                f"/dashboard/sprints/{sprint_id}",
+                status_code=303,
+            )
+
+        try:
+            await orchestrator.sprint_manager.submit_tweak(sprint_id, instruction)
+        except Exception as exc:
+            logger.warning("Tweak submission failed: %s", exc)
+
+        return RedirectResponse(
+            f"/dashboard/sprints/{sprint_id}",
+            status_code=303,
+        )
 
     @app.post("/dashboard/sprints/new")
     async def dashboard_sprint_new(request: Request):  # type: ignore[no-untyped-def]

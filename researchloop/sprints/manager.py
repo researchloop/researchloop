@@ -23,6 +23,7 @@ from researchloop.core.models import (
     SprintStatus,
     format_sprint_dirname,
     generate_sprint_id,
+    generate_tweak_id,
 )
 from researchloop.db import queries
 from researchloop.studies.manager import StudyManager
@@ -815,3 +816,189 @@ class SprintManager:
                 sprint_id,
                 exc_info=True,
             )
+
+    # ------------------------------------------------------------------
+    # Tweaks
+    # ------------------------------------------------------------------
+
+    async def submit_tweak(
+        self,
+        sprint_id: str,
+        instruction: str,
+    ) -> str:
+        """Submit a quick tweak job for a completed sprint.
+
+        Returns the tweak ID.
+        """
+        sprint = await queries.get_sprint(self.db, sprint_id)
+        if sprint is None:
+            raise ValueError(f"Sprint not found: {sprint_id}")
+        if sprint["status"] != SprintStatus.COMPLETED.value:
+            raise ValueError(
+                f"Sprint {sprint_id} is not completed (status={sprint['status']})"
+            )
+
+        # Reject if there's already a running tweak for this sprint.
+        existing = await queries.list_tweaks(self.db, sprint_id)
+        for t in existing:
+            if t["status"] in ("pending", "submitted", "running"):
+                raise ValueError(
+                    f"Sprint {sprint_id} already has an active tweak: {t['id']}"
+                )
+
+        study_name: str = sprint["study_name"]
+
+        # Resolve cluster config.
+        if self.study_manager is not None:
+            cluster_cfg = await self.study_manager.get_cluster_config(study_name)
+        else:
+            study_row = await queries.get_study(self.db, study_name)
+            if study_row is None:
+                raise ValueError(f"Study not found: {study_name}")
+            cluster_name = study_row["cluster"]
+            cluster_cfg = None
+            for c in self.config.clusters:
+                if c.name == cluster_name:
+                    cluster_cfg = c
+                    break
+            if cluster_cfg is None:
+                raise ValueError(f"Cluster not found: {cluster_name}")
+
+        study_cfg = None
+        for s in self.config.studies:
+            if s.name == study_name:
+                study_cfg = s
+                break
+
+        scheduler = self.schedulers.get(cluster_cfg.name)
+        if scheduler is None:
+            scheduler = self.schedulers.get(cluster_cfg.scheduler_type)
+        if scheduler is None:
+            raise ValueError(
+                f"No scheduler for cluster {cluster_cfg.name!r}"
+            )
+
+        # Create tweak record.
+        tweak_id = generate_tweak_id()
+        await queries.create_tweak(self.db, tweak_id, sprint_id, instruction)
+
+        # Resolve sprint path on cluster.
+        if study_cfg and study_cfg.sprints_dir:
+            sprints_base = study_cfg.sprints_dir
+        else:
+            sprints_base = f"{cluster_cfg.working_dir}/{study_name}"
+        sp_dir = sprint.get("directory", "")
+        sprint_remote_dir = f"{sprints_base}/{sp_dir}"
+
+        # Render prompt templates.
+        def _render_prompt(name: str, **kw: object) -> str:
+            return _prompt_env.get_template(name).render(**kw)
+
+        idea_text = sprint.get("idea") or "(unknown)"
+        prompts = [
+            {
+                "filename": "prompt_tweak.md",
+                "content_b64": _b64encode(
+                    _render_prompt("tweak.md.j2", instruction=instruction)
+                ),
+            },
+            {
+                "filename": "prompt_report.md",
+                "content_b64": _b64encode(
+                    _render_prompt("report.md.j2", idea=idea_text)
+                ),
+            },
+        ]
+
+        # Render the tweak job script.
+        template_name = f"{cluster_cfg.scheduler_type}_tweak.sh.j2"
+        template = _jinja_env.get_template(template_name)
+        job_script = template.render(
+            sprint_id=sprint_id,
+            tweak_id=tweak_id,
+            sprint_dir=sprint_remote_dir,
+            job_name=f"rl-{tweak_id}",
+            time_limit="2:00:00",
+            environment=cluster_cfg.environment,
+            job_options={
+                **cluster_cfg.job_options,
+                **(study_cfg.job_options if study_cfg else {}),
+            },
+            claude_command=(
+                (study_cfg.claude_command if study_cfg else "")
+                or cluster_cfg.claude_command
+                or self.config.claude_command
+                or "claude --dangerously-skip-permissions"
+            ),
+            orchestrator_url=self.config.orchestrator_url or "",
+            webhook_token=sprint.get("webhook_token", ""),
+            prompts=prompts,
+        )
+
+        # SSH: write script and submit.
+        cluster_dict = {
+            "host": cluster_cfg.host,
+            "port": cluster_cfg.port,
+            "user": cluster_cfg.user,
+            "key_path": cluster_cfg.key_path,
+        }
+        ssh = await self.ssh_manager.get_connection(cluster_dict)
+
+        script_path = f"{sprint_remote_dir}/.researchloop/run_tweak_{tweak_id}.sh"
+        encoded_script = _b64encode(job_script)
+        await ssh.run(f"echo '{encoded_script}' | base64 -d > {script_path}")
+        await ssh.run(f"chmod +x {script_path}")
+
+        job_id = await scheduler.submit(
+            ssh=ssh,
+            script=script_path,
+            job_name=f"rl-{tweak_id}",
+            working_dir=sprint_remote_dir,
+            env=cluster_cfg.environment or None,
+        )
+
+        now = datetime.now(timezone.utc).isoformat()
+        await queries.update_tweak(
+            self.db,
+            tweak_id,
+            job_id=job_id,
+            status="submitted",
+            started_at=now,
+        )
+
+        logger.info(
+            "Tweak %s submitted as job %s for sprint %s",
+            tweak_id,
+            job_id,
+            sprint_id,
+        )
+        return tweak_id
+
+    async def handle_tweak_completion(
+        self,
+        tweak_id: str,
+        sprint_id: str,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        """Handle a tweak job completion."""
+        now = datetime.now(timezone.utc).isoformat()
+        await queries.update_tweak(
+            self.db,
+            tweak_id,
+            status=status,
+            completed_at=now,
+            error=error,
+        )
+
+        # Re-fetch results for the parent sprint (report may have changed).
+        sprint = await queries.get_sprint(self.db, sprint_id)
+        if sprint:
+            await self._fetch_results(sprint)
+            await self._fetch_pdf(sprint)
+
+        logger.info(
+            "Tweak %s completion handled: status=%s",
+            tweak_id,
+            status,
+        )
