@@ -188,6 +188,51 @@ class TestSubmitTweak:
         except ValueError as e:
             assert "not completed" in str(e)
 
+    async def test_submit_tweak_defaults_to_study_time_limit(
+        self, db_with_study, tmp_path
+    ):
+        """Without an explicit time_limit, the study's default is used."""
+        import base64
+
+        config = _tweak_config(tmp_path)
+        # Set a distinctive max duration to verify propagation.
+        config.studies[0].max_sprint_duration_hours = 6
+
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "777"
+
+        study_mgr = StudyManager(db_with_study, config)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+            study_manager=study_mgr,
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.update_sprint(db_with_study, sprint.id, status="completed")
+
+        await mgr.submit_tweak(sprint.id, "fix plots")
+
+        # Find the job script written via base64 and decode it.
+        script_content = None
+        for call in ssh_mock.run.call_args_list:
+            cmd = call.args[0] if call.args else ""
+            if "run_tweak_" in cmd and "base64 -d" in cmd:
+                start = cmd.index("'") + 1
+                end = cmd.index("'", start)
+                script_content = base64.b64decode(cmd[start:end]).decode("utf-8")
+                break
+
+        assert script_content is not None
+        assert "6:00:00" in script_content  # Study's max_sprint_duration_hours
+        assert "2:00:00" not in script_content  # NOT the old hardcoded default
+
     async def test_submit_tweak_rejects_active_tweak(self, db_with_study, tmp_path):
         """Should reject if there's already an active tweak."""
         config = _tweak_config(tmp_path)
@@ -265,6 +310,80 @@ class TestHandleTweakCompletion:
         assert tweak is not None
         assert tweak["status"] == "failed"
         assert tweak["error"] == "Claude crashed"
+
+    async def test_handle_tweak_completion_notifies_on_success(
+        self, db_with_study, sample_config
+    ):
+        """Completed tweaks fire a sprint-completed notification."""
+        from researchloop.comms.router import NotificationRouter
+
+        router = NotificationRouter()
+        mock_notifier = AsyncMock()
+        router.add_notifier(mock_notifier)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+            notification_router=router,
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.create_tweak(
+            db_with_study, "tw-ntf01", sprint.id, "add a histogram"
+        )
+
+        await mgr.handle_tweak_completion(
+            tweak_id="tw-ntf01",
+            sprint_id=sprint.id,
+            status="completed",
+        )
+
+        mock_notifier.notify_sprint_completed.assert_called_once()
+        call = mock_notifier.notify_sprint_completed.call_args
+        args = call.args
+        kwargs = call.kwargs
+        sid = args[0] if args else kwargs.get("sprint_id")
+        summary = args[2] if len(args) > 2 else kwargs.get("summary", "")
+        assert sid == sprint.id
+        assert "add a histogram" in summary
+
+    async def test_handle_tweak_completion_notifies_on_failure(
+        self, db_with_study, sample_config
+    ):
+        """Failed tweaks fire a sprint-failed notification."""
+        from researchloop.comms.router import NotificationRouter
+
+        router = NotificationRouter()
+        mock_notifier = AsyncMock()
+        router.add_notifier(mock_notifier)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+            notification_router=router,
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.create_tweak(db_with_study, "tw-ntf02", sprint.id, "broken thing")
+
+        await mgr.handle_tweak_completion(
+            tweak_id="tw-ntf02",
+            sprint_id=sprint.id,
+            status="failed",
+            error="Claude timed out",
+        )
+
+        mock_notifier.notify_sprint_failed.assert_called_once()
+        call = mock_notifier.notify_sprint_failed.call_args
+        args = call.args
+        kwargs = call.kwargs
+        sid = args[0] if args else kwargs.get("sprint_id")
+        err = args[2] if len(args) > 2 else kwargs.get("error", "")
+        assert sid == sprint.id
+        assert "Claude timed out" in err
+        assert "broken thing" in err
 
     async def test_handle_tweak_completion_fetches_results(
         self, db_with_study, sample_config

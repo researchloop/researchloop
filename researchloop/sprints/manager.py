@@ -824,11 +824,12 @@ class SprintManager:
         sprint_id: str,
         instruction: str,
         job_options: dict[str, str] | None = None,
-        time_limit: str = "2:00:00",
+        time_limit: str | None = None,
     ) -> str:
         """Submit a quick tweak job for a completed sprint.
 
-        Returns the tweak ID.
+        If *time_limit* is None, the study's ``max_sprint_duration_hours``
+        is used (same default as a regular sprint). Returns the tweak ID.
         """
         sprint = await queries.get_sprint(self.db, sprint_id)
         if sprint is None:
@@ -907,6 +908,14 @@ class SprintManager:
                 ),
             },
         ]
+
+        # Resolve time limit: caller override > study default > 8 hours.
+        if time_limit is None:
+            time_limit = (
+                f"{study_cfg.max_sprint_duration_hours}:00:00"
+                if study_cfg
+                else "8:00:00"
+            )
 
         # Render the tweak job script.
         template_name = f"{cluster_cfg.scheduler_type}_tweak.sh.j2"
@@ -990,11 +999,36 @@ class SprintManager:
             error=error,
         )
 
+        tweak = await queries.get_tweak(self.db, tweak_id)
+        instruction = tweak["instruction"] if tweak else ""
+
         # Re-fetch results for the parent sprint (report may have changed).
         sprint = await queries.get_sprint(self.db, sprint_id)
+        pdf_local: str | None = None
         if sprint:
             await self._fetch_results(sprint)
-            await self._fetch_pdf(sprint)
+            if status == SprintStatus.COMPLETED.value:
+                pdf_local = await self._fetch_pdf(sprint)
+
+        study_name = sprint["study_name"] if sprint else "unknown"
+
+        # Notify via configured channels.
+        if self.notification_router is not None:
+            if status == SprintStatus.COMPLETED.value:
+                summary = f"Tweak applied: {instruction}"
+                await self.notification_router.notify_sprint_completed(
+                    sprint_id=sprint_id,
+                    study_name=study_name,
+                    summary=summary,
+                    pdf_path=pdf_local,
+                )
+            elif status == SprintStatus.FAILED.value:
+                err_msg = f"Tweak failed ({instruction}): {error or 'unknown error'}"
+                await self.notification_router.notify_sprint_failed(
+                    sprint_id=sprint_id,
+                    study_name=study_name,
+                    error=err_msg,
+                )
 
         logger.info(
             "Tweak %s completion handled: status=%s",

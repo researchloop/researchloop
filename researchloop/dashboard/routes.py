@@ -392,13 +392,15 @@ def add_dashboard_routes(
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        # Resolve default job_options for tweak resource settings.
+        # Resolve default job_options and time limit for tweak settings.
         default_opts: dict[str, str] = {}
+        default_time_limit = "8:00:00"
         study_name = sprint["study_name"]
         for c in orchestrator.config.clusters:
             for s in orchestrator.config.studies:
                 if s.name == study_name and s.cluster == c.name:
                     default_opts = {**c.job_options, **s.job_options}
+                    default_time_limit = f"{s.max_sprint_duration_hours}:00:00"
                     break
 
         return templates.TemplateResponse(
@@ -419,6 +421,7 @@ def add_dashboard_routes(
                 default_gpu=default_opts.get("gres", ""),
                 default_mem=default_opts.get("mem", ""),
                 default_cpus=default_opts.get("cpus-per-task", ""),
+                default_time_limit=default_time_limit,
             ),
         )
 
@@ -758,7 +761,7 @@ def add_dashboard_routes(
             )
 
         job_opts = _parse_job_options(form)
-        time_limit = str(form.get("time_limit", "")).strip() or "2:00:00"
+        time_limit = str(form.get("time_limit", "")).strip() or None
 
         try:
             await orchestrator.sprint_manager.submit_tweak(
