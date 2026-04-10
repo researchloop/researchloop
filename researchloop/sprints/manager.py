@@ -1035,3 +1035,118 @@ class SprintManager:
             tweak_id,
             status,
         )
+
+    async def refresh_tweak_status(self, tweak_id: str) -> str | None:
+        """Poll the cluster for a tweak's job status and update the DB.
+
+        Returns the updated status, or ``None`` if the tweak couldn't be
+        found or polled. If the job has reached a terminal state, this
+        also calls :meth:`handle_tweak_completion` so notifications fire
+        and results are re-fetched.
+        """
+        tweak = await queries.get_tweak(self.db, tweak_id)
+        if tweak is None:
+            return None
+        if tweak["status"] not in ("pending", "submitted", "running"):
+            return tweak["status"]
+
+        job_id = tweak.get("job_id")
+        if not job_id:
+            return tweak["status"]
+
+        sprint_id = tweak["sprint_id"]
+        sprint = await queries.get_sprint(self.db, sprint_id)
+        if sprint is None:
+            return None
+
+        study_name: str = sprint["study_name"]
+
+        # Resolve cluster.
+        if self.study_manager is None:
+            return tweak["status"]
+        try:
+            cluster_cfg = await self.study_manager.get_cluster_config(study_name)
+        except Exception:
+            logger.debug(
+                "Could not resolve cluster for tweak %s", tweak_id, exc_info=True
+            )
+            return tweak["status"]
+
+        scheduler = self.schedulers.get(cluster_cfg.name)
+        if scheduler is None:
+            scheduler = self.schedulers.get(cluster_cfg.scheduler_type)
+        if scheduler is None:
+            return tweak["status"]
+
+        cluster_dict = {
+            "host": cluster_cfg.host,
+            "port": cluster_cfg.port,
+            "user": cluster_cfg.user,
+            "key_path": cluster_cfg.key_path,
+        }
+        try:
+            ssh = await self.ssh_manager.get_connection(cluster_dict)
+            real_status = await scheduler.status(ssh, job_id)
+        except Exception:
+            logger.warning("Tweak status poll failed for %s", tweak_id, exc_info=True)
+            return tweak["status"]
+
+        terminal = {"completed", "failed", "cancelled"}
+        if real_status in terminal:
+            await self.handle_tweak_completion(
+                tweak_id=tweak_id,
+                sprint_id=sprint_id,
+                status=real_status,
+                error=None if real_status == "completed" else "Job ended on cluster",
+            )
+        elif real_status == "running" and tweak["status"] != "running":
+            await queries.update_tweak(self.db, tweak_id, status="running")
+
+        updated = await queries.get_tweak(self.db, tweak_id)
+        return updated["status"] if updated else None
+
+    async def cancel_tweak(self, tweak_id: str) -> bool:
+        """Cancel an active tweak job and mark it as cancelled."""
+        tweak = await queries.get_tweak(self.db, tweak_id)
+        if tweak is None:
+            raise ValueError(f"Tweak not found: {tweak_id}")
+
+        sprint_id = tweak["sprint_id"]
+        sprint = await queries.get_sprint(self.db, sprint_id)
+        if sprint is None:
+            raise ValueError(f"Sprint not found: {sprint_id}")
+
+        job_id = tweak.get("job_id")
+        # Try to cancel the cluster job (best effort).
+        if job_id and self.study_manager is not None:
+            try:
+                cluster_cfg = await self.study_manager.get_cluster_config(
+                    sprint["study_name"]
+                )
+                scheduler = self.schedulers.get(cluster_cfg.name)
+                if scheduler is None:
+                    scheduler = self.schedulers.get(cluster_cfg.scheduler_type)
+                if scheduler is not None:
+                    cluster_dict = {
+                        "host": cluster_cfg.host,
+                        "port": cluster_cfg.port,
+                        "user": cluster_cfg.user,
+                        "key_path": cluster_cfg.key_path,
+                    }
+                    ssh = await self.ssh_manager.get_connection(cluster_dict)
+                    await scheduler.cancel(ssh, job_id)
+            except Exception:
+                logger.warning(
+                    "Failed to cancel cluster job for tweak %s",
+                    tweak_id,
+                    exc_info=True,
+                )
+
+        await queries.update_tweak(
+            self.db,
+            tweak_id,
+            status="cancelled",
+            completed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        logger.info("Tweak %s cancelled", tweak_id)
+        return True

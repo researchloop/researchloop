@@ -431,6 +431,135 @@ class TestHandleTweakCompletion:
         assert "Updated Report" in meta.get("report", "")
 
 
+class TestRefreshTweakStatus:
+    async def test_refresh_marks_completed_when_job_done(self, db_with_study, tmp_path):
+        """Polling a finished cluster job marks tweak as completed."""
+        config = _tweak_config(tmp_path)
+        ssh_mock = AsyncMock()
+
+        async def fake_run(cmd: str) -> tuple[str, str, int]:
+            return ("", "", 0)
+
+        ssh_mock.run = AsyncMock(side_effect=fake_run)
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.status = AsyncMock(return_value="completed")
+
+        study_mgr = StudyManager(db_with_study, config)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+            study_manager=study_mgr,
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.update_sprint(db_with_study, sprint.id, status="completed")
+        await queries.create_tweak(db_with_study, "tw-rfsh1", sprint.id, "fix")
+        await queries.update_tweak(
+            db_with_study, "tw-rfsh1", status="submitted", job_id="555"
+        )
+
+        result = await mgr.refresh_tweak_status("tw-rfsh1")
+
+        assert result == "completed"
+        tweak = await queries.get_tweak(db_with_study, "tw-rfsh1")
+        assert tweak is not None
+        assert tweak["status"] == "completed"
+        assert tweak["completed_at"] is not None
+
+    async def test_refresh_keeps_running_status(self, db_with_study, tmp_path):
+        """Polling an in-progress job leaves tweak in running state."""
+        config = _tweak_config(tmp_path)
+        ssh_mock = AsyncMock()
+        ssh_mock.run = AsyncMock(return_value=("", "", 0))
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.status = AsyncMock(return_value="running")
+
+        study_mgr = StudyManager(db_with_study, config)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+            study_manager=study_mgr,
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.update_sprint(db_with_study, sprint.id, status="completed")
+        await queries.create_tweak(db_with_study, "tw-rfsh2", sprint.id, "fix")
+        await queries.update_tweak(
+            db_with_study, "tw-rfsh2", status="submitted", job_id="666"
+        )
+
+        result = await mgr.refresh_tweak_status("tw-rfsh2")
+
+        assert result == "running"
+        tweak = await queries.get_tweak(db_with_study, "tw-rfsh2")
+        assert tweak is not None
+        assert tweak["status"] == "running"
+        assert tweak["completed_at"] is None
+
+    async def test_refresh_skips_terminal_tweak(self, db_with_study, sample_config):
+        """A tweak that's already completed shouldn't be re-polled."""
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.create_tweak(db_with_study, "tw-rfsh3", sprint.id, "done")
+        await queries.update_tweak(db_with_study, "tw-rfsh3", status="completed")
+
+        result = await mgr.refresh_tweak_status("tw-rfsh3")
+        assert result == "completed"
+
+
+class TestCancelTweak:
+    async def test_cancel_tweak(self, db_with_study, tmp_path):
+        """Cancelling a running tweak marks it as cancelled."""
+        config = _tweak_config(tmp_path)
+        ssh_mock = AsyncMock()
+        ssh_mock.run = AsyncMock(return_value=("", "", 0))
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.cancel = AsyncMock(return_value=True)
+
+        study_mgr = StudyManager(db_with_study, config)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+            study_manager=study_mgr,
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.update_sprint(db_with_study, sprint.id, status="completed")
+        await queries.create_tweak(db_with_study, "tw-cnl01", sprint.id, "fix")
+        await queries.update_tweak(
+            db_with_study, "tw-cnl01", status="running", job_id="777"
+        )
+
+        result = await mgr.cancel_tweak("tw-cnl01")
+        assert result is True
+
+        tweak = await queries.get_tweak(db_with_study, "tw-cnl01")
+        assert tweak is not None
+        assert tweak["status"] == "cancelled"
+        assert tweak["completed_at"] is not None
+        scheduler.cancel.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # Dashboard routes
 # ---------------------------------------------------------------------------

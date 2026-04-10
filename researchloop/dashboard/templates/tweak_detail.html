@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ tweak.id }} — ResearchLoop{% endblock %}
+{% block head %}
+{% if tweak.status in ('pending', 'submitted', 'running') %}
+<script>setTimeout(function(){refreshTweak()},30000);</script>
+{% endif %}
+{% endblock %}
+{% block content %}
+<h2>Tweak {{ tweak.id }}</h2>
+<p><a href="/dashboard/sprints/{{ sprint.id }}">&larr; Back to sprint {{ sprint.id }}</a></p>
+
+<div class="card">
+  <dl>
+    <dt>Sprint</dt><dd><a href="/dashboard/sprints/{{ sprint.id }}">{{ sprint.id }}</a></dd>
+    <dt>Study</dt><dd><a href="/dashboard/studies/{{ sprint.study_name }}">{{ sprint.study_name }}</a></dd>
+    <dt>Status</dt><dd id="tweak-status"><span class="badge badge-{{ tweak.status.split(' ')[0] }}">{{ tweak.status }}</span></dd>
+    <dt>Job ID</dt><dd>{{ tweak.job_id or '—' }}</dd>
+    <dt>Created</dt><dd>{{ tweak.created_at }}</dd>
+    <dt>Started</dt><dd>{{ tweak.started_at or '—' }}</dd>
+    <dt>Completed</dt><dd id="tweak-completed">{{ tweak.completed_at or '—' }}</dd>
+  </dl>
+  <div class="actions">
+    <button type="button" id="refresh-btn" class="btn btn-sm" onclick="refreshTweak()">&#8635; Refresh status</button>
+    {% if tweak.status in ('pending', 'submitted', 'running') %}
+    <form method="post" action="/dashboard/sprints/{{ sprint.id }}/tweaks/{{ tweak.id }}/cancel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Cancel this tweak?')">Cancel</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<h3>Instruction</h3>
+<div class="card report-content">{{ tweak.instruction|markdown|safe }}</div>
+
+{% if tweak.error %}
+<h3>Error</h3>
+<div class="card">
+  <pre style="white-space: pre-wrap; word-wrap: break-word; color: #fca5a5; max-height: 400px; overflow-y: auto;">{{ tweak.error }}</pre>
+</div>
+{% endif %}
+
+<script>
+var csrfToken='{{ csrf_token }}';
+function refreshTweak(){
+  var btn=document.getElementById('refresh-btn');
+  btn.innerHTML='<span class="spinning" style="display:inline-block">&#8635;</span> Refreshing...';
+  btn.disabled=true;
+  fetch('/dashboard/sprints/{{ sprint.id }}/tweaks/{{ tweak.id }}/refresh',{method:'POST',headers:{'Accept':'application/json','X-CSRF-Token':csrfToken}})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.status){
+        var s=d.status.split(' ')[0];
+        document.getElementById('tweak-status').innerHTML='<span class="badge badge-'+s+'">'+d.status+'</span>';
+      }
+      if(d.completed_at){document.getElementById('tweak-completed').textContent=d.completed_at;}
+      btn.innerHTML='&#10003; Updated';btn.style.color='#86efac';
+      setTimeout(function(){btn.innerHTML='&#8635; Refresh status';btn.style.color='';btn.disabled=false;},2000);
+      if(d.status && (d.status === 'pending' || d.status === 'submitted' || d.status === 'running')){
+        setTimeout(function(){refreshTweak()},30000);
+      } else {
+        setTimeout(function(){window.location.reload();},2000);
+      }
+    })
+    .catch(function(){
+      btn.innerHTML='&#8635; Refresh status';btn.disabled=false;
+      window.location.reload();
+    });
+}
+</script>
+{% endblock %}

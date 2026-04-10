@@ -673,6 +673,15 @@ def add_dashboard_routes(
             except Exception as exc:
                 logger.warning("Refresh status failed: %s", exc)
 
+        # Also poll any active tweaks for this sprint so stuck ones recover.
+        active_tweaks = await queries.list_tweaks(orchestrator.db, sprint_id)
+        for t in active_tweaks:
+            if t["status"] in ("pending", "submitted", "running"):
+                try:
+                    await orchestrator.sprint_manager.refresh_tweak_status(t["id"])
+                except Exception as exc:
+                    logger.warning("Tweak %s status poll failed: %s", t["id"], exc)
+
         # Return JSON if requested (JS refresh), otherwise redirect.
         if request.headers.get("accept", "").startswith("application/json"):
             updated = await queries.get_sprint(orchestrator.db, sprint_id)
@@ -775,6 +784,94 @@ def add_dashboard_routes(
 
         return RedirectResponse(
             f"/dashboard/sprints/{sprint_id}",
+            status_code=303,
+        )
+
+    @app.get("/dashboard/sprints/{sprint_id}/tweaks/{tweak_id}")
+    async def dashboard_tweak_detail(sprint_id: str, tweak_id: str, request: Request):  # type: ignore[no-untyped-def]
+        """Tweak detail page."""
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.db is not None
+
+        tweak = await queries.get_tweak(orchestrator.db, tweak_id)
+        if tweak is None or tweak["sprint_id"] != sprint_id:
+            raise HTTPException(status_code=404, detail="Tweak not found")
+        sprint = await queries.get_sprint(orchestrator.db, sprint_id)
+        if sprint is None:
+            raise HTTPException(status_code=404, detail="Sprint not found")
+
+        return templates.TemplateResponse(
+            "tweak_detail.html",
+            _ctx(
+                request,
+                authenticated=True,
+                tweak=tweak,
+                sprint=sprint,
+            ),
+        )
+
+    @app.api_route(
+        "/dashboard/sprints/{sprint_id}/tweaks/{tweak_id}/refresh",
+        methods=["GET", "POST"],
+    )
+    async def dashboard_tweak_refresh(  # type: ignore[no-untyped-def]
+        sprint_id: str, tweak_id: str, request: Request
+    ):
+        """Poll the cluster for a tweak's status and update."""
+        if redir := await _gate(request):
+            return redir
+        if request.method == "POST":
+            await _check_csrf(request)
+        assert orchestrator.db is not None
+        assert orchestrator.sprint_manager is not None
+
+        tweak = await queries.get_tweak(orchestrator.db, tweak_id)
+        if tweak is None or tweak["sprint_id"] != sprint_id:
+            raise HTTPException(status_code=404, detail="Tweak not found")
+
+        try:
+            await orchestrator.sprint_manager.refresh_tweak_status(tweak_id)
+        except Exception as exc:
+            logger.warning("Tweak refresh failed: %s", exc)
+
+        if request.headers.get("accept", "").startswith("application/json"):
+            updated = await queries.get_tweak(orchestrator.db, tweak_id)
+            return JSONResponse(
+                {
+                    "status": updated["status"] if updated else None,
+                    "completed_at": updated.get("completed_at") if updated else None,
+                    "error": updated.get("error") if updated else None,
+                }
+            )
+
+        return RedirectResponse(
+            f"/dashboard/sprints/{sprint_id}/tweaks/{tweak_id}",
+            status_code=303,
+        )
+
+    @app.post("/dashboard/sprints/{sprint_id}/tweaks/{tweak_id}/cancel")
+    async def dashboard_tweak_cancel(  # type: ignore[no-untyped-def]
+        sprint_id: str, tweak_id: str, request: Request
+    ):
+        """Cancel an active tweak."""
+        if redir := await _gate(request):
+            return redir
+        await _check_csrf(request)
+        assert orchestrator.db is not None
+        assert orchestrator.sprint_manager is not None
+
+        tweak = await queries.get_tweak(orchestrator.db, tweak_id)
+        if tweak is None or tweak["sprint_id"] != sprint_id:
+            raise HTTPException(status_code=404, detail="Tweak not found")
+
+        try:
+            await orchestrator.sprint_manager.cancel_tweak(tweak_id)
+        except Exception as exc:
+            logger.warning("Tweak cancel failed: %s", exc)
+
+        return RedirectResponse(
+            f"/dashboard/sprints/{sprint_id}/tweaks/{tweak_id}",
             status_code=303,
         )
 

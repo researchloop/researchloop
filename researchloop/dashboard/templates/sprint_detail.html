@@ -136,7 +136,7 @@
   <tbody>
   {% for t in tweaks %}
     <tr>
-      <td>{{ t.id }}</td>
+      <td><a href="/dashboard/sprints/{{ sprint.id }}/tweaks/{{ t.id }}">{{ t.id }}</a></td>
       <td>{{ t.instruction[:80] }}{% if t.instruction|length > 80 %}…{% endif %}</td>
       <td><span class="badge badge-{{ t.status.split(' ')[0] }}">{{ t.status }}</span></td>
       <td class="dim">{{ t.created_at }}</td>
