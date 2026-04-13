@@ -266,6 +266,77 @@ def add_dashboard_routes(
         return None
 
     # ----------------------------------------------------------
+    # Search
+    # ----------------------------------------------------------
+
+    def _score_sprint(sprint: dict, query_lower: str) -> int:
+        """Score a sprint for search relevance.
+
+        Weights: idea (10), report (5), summary/findings (3), other (1).
+        """
+        score = 0
+        idea = (sprint.get("idea") or "").lower()
+        if query_lower in idea:
+            score += 10
+
+        meta_str = sprint.get("metadata_json") or ""
+        report = ""
+        findings = ""
+        if meta_str:
+            try:
+                md = json.loads(meta_str)
+                report = (md.get("report") or "").lower()
+                findings = (md.get("findings") or "").lower()
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        if query_lower in report:
+            score += 5
+        if query_lower in findings:
+            score += 3
+
+        summary = (sprint.get("summary") or "").lower()
+        if query_lower in summary:
+            score += 3
+
+        error = (sprint.get("error") or "").lower()
+        if query_lower in error:
+            score += 1
+
+        # Check the rest of metadata_json for other fields.
+        if score == 0 and query_lower in meta_str.lower():
+            score += 1
+
+        return score
+
+    @app.get("/dashboard/search")
+    async def dashboard_search(request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.db is not None
+
+        q = request.query_params.get("q", "").strip()
+        results: list[dict] = []
+
+        if q:
+            raw = await queries.search_sprints(orchestrator.db, q, limit=200)
+            q_lower = q.lower()
+            scored = [(s, _score_sprint(s, q_lower)) for s in raw]
+            scored.sort(key=lambda x: x[1], reverse=True)
+            results = [s for s, _sc in scored]
+
+        return templates.TemplateResponse(
+            "search.html",
+            _ctx(
+                request,
+                authenticated=True,
+                query=q,
+                results=results,
+                result_count=len(results),
+            ),
+        )
+
+    # ----------------------------------------------------------
     # Studies
     # ----------------------------------------------------------
 

@@ -370,6 +370,36 @@ async def list_events(
 # ---------------------------------------------------------------------------
 
 
+async def search_sprints(
+    db: Database,
+    query: str,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Search sprints across text fields.
+
+    Returns matching sprints (newest first). Caller is responsible
+    for scoring/ranking.
+    """
+    like = f"%{query}%"
+    return await db.fetch_all(
+        """
+        SELECT * FROM sprints
+        WHERE idea LIKE ?
+           OR summary LIKE ?
+           OR error LIKE ?
+           OR metadata_json LIKE ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (like, like, like, like, limit),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tweaks
+# ---------------------------------------------------------------------------
+
+
 async def create_tweak(
     db: Database,
     id: str,

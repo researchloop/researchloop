@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Search — ResearchLoop{% endblock %}
+{% block content %}
+<h2>Search</h2>
+
+<form action="/dashboard/search" method="get" style="margin-bottom:1.5rem">
+  <div style="display:flex;gap:0.5rem">
+    <input type="text" name="q" value="{{ query }}" placeholder="Search sprints…" style="flex:1;padding:0.6rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0;font-size:0.95rem" autofocus>
+    <button type="submit" class="btn">Search</button>
+  </div>
+</form>
+
+{% if query %}
+<p class="dim" style="margin-bottom:1rem">{{ result_count }} result{{ 's' if result_count != 1 else '' }} for "{{ query }}"</p>
+{% endif %}
+
+{% if results %}
+<table>
+  <thead><tr><th>Sprint</th><th>Study</th><th>Status</th><th>Idea</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for s in results %}
+    <tr>
+      <td><a href="/dashboard/sprints/{{ s.id }}">{{ s.id }}</a></td>
+      <td><a href="/dashboard/studies/{{ s.study_name }}">{{ s.study_name }}</a></td>
+      <td><span class="badge badge-{{ s.status.split(' ')[0] }}">{{ s.status }}</span></td>
+      <td>{{ (s.idea or '')[:60] }}{% if (s.idea or '')|length > 60 %}…{% endif %}</td>
+      <td class="dim">{{ s.created_at }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% elif query %}
+<p>No sprints matched your search.</p>
+{% endif %}
+{% endblock %}
