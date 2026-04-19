@@ -1,14 +1,27 @@
 {% extends "base.html" %}
 {% block title %}Studies — ResearchLoop{% endblock %}
 {% block content %}
-<h2>Studies</h2>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+  <h2 style="margin:0">Studies</h2>
+  <a href="/dashboard/studies/new" class="btn">New study</a>
+</div>
 <table>
-  <thead><tr><th>Name</th><th>Cluster</th><th>Description</th><th>Sprints</th></tr></thead>
+  <thead><tr><th>Name</th><th>Cluster</th><th>Source</th><th>Description</th><th>Sprints</th></tr></thead>
   <tbody>
   {% for s in studies %}
     <tr>
       <td><a href="/dashboard/studies/{{ s.name }}">{{ s.name }}</a></td>
       <td>{{ s.cluster }}</td>
+      <td>
+        {% if s.source == 'ui' %}
+          <span class="badge badge-submitted">ui</span>
+        {% else %}
+          <span class="badge badge-running">yaml</span>
+        {% endif %}
+        {% if s.is_ui_edited %}
+          <span class="dim" style="font-size:0.75rem">edited</span>
+        {% endif %}
+      </td>
       <td>{{ s.description or '' }}</td>
       <td>{{ s.sprint_count }}</td>
     </tr>

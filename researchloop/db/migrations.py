@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS studies (
     claude_md_path TEXT,
     sprints_dir TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    config_json TEXT  -- full StudyConfig as JSON
+    config_json TEXT,  -- full StudyConfig as JSON
+    source TEXT NOT NULL DEFAULT 'yaml',  -- 'yaml' or 'ui'
+    yaml_config_json TEXT  -- snapshot of current TOML version (for revert)
 );
 
 CREATE TABLE IF NOT EXISTS sprints (
@@ -133,6 +135,9 @@ async def run_migrations(db: Database) -> None:
     await _add_column_if_missing(db, "sprints", "loop_id", "TEXT")
     await _add_column_if_missing(db, "auto_loops", "metadata_json", "TEXT")
     await _add_column_if_missing(db, "slack_sessions", "messages_json", "TEXT")
+    await _add_column_if_missing(db, "studies", "source", "TEXT")
+    await _add_column_if_missing(db, "studies", "yaml_config_json", "TEXT")
+    await db._conn.execute("UPDATE studies SET source = 'yaml' WHERE source IS NULL")
 
     # Make idea column nullable — already applied, skip on future runs.
     # The migration checks if the column is still NOT NULL before acting.

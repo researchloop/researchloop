@@ -42,6 +42,87 @@ class TestStudyQueries:
         result = await queries.update_study(db, "s1")
         assert result["name"] == "s1"
 
+    async def test_create_study_with_source_and_yaml_snapshot(self, db):
+        study = await queries.create_study(
+            db,
+            name="s1",
+            cluster="c1",
+            description=None,
+            claude_md_path=None,
+            sprints_dir="./sp",
+            config_json='{"name":"s1"}',
+            source="ui",
+            yaml_config_json=None,
+        )
+        assert study["source"] == "ui"
+        assert study["yaml_config_json"] is None
+        assert study["config_json"] == '{"name":"s1"}'
+
+    async def test_create_study_default_source_is_yaml(self, db):
+        study = await queries.create_study(
+            db,
+            name="s1",
+            cluster="c1",
+            description=None,
+            claude_md_path=None,
+            sprints_dir="./sp",
+            config_json="{}",
+            yaml_config_json="{}",
+        )
+        assert study["source"] == "yaml"
+        assert study["yaml_config_json"] == "{}"
+
+    async def test_delete_study(self, db):
+        await queries.create_study(db, "s1", "c1", None, None, "./sp")
+        await queries.delete_study(db, "s1")
+        assert await queries.get_study(db, "s1") is None
+
+    async def test_count_sprints_for_study(self, db):
+        await queries.create_study(db, "s1", "c1", None, None, "./sp")
+        assert await queries.count_sprints_for_study(db, "s1") == 0
+        await queries.create_sprint(db, "sp-1", "s1", "idea 1")
+        await queries.create_sprint(db, "sp-2", "s1", "idea 2")
+        assert await queries.count_sprints_for_study(db, "s1") == 2
+        assert await queries.count_sprints_for_study(db, "other") == 0
+
+    async def test_update_study_yaml_config_json_to_null(self, db):
+        await queries.create_study(
+            db,
+            "s1",
+            "c1",
+            None,
+            None,
+            "./sp",
+            config_json="{}",
+            source="yaml",
+            yaml_config_json='{"v": 1}',
+        )
+        updated = await queries.update_study(db, "s1", yaml_config_json=None)
+        assert updated["yaml_config_json"] is None
+
+    async def test_update_study_rejects_unknown_column(self, db):
+        import pytest
+
+        await queries.create_study(db, "s1", "c1", None, None, "./sp")
+        with pytest.raises(ValueError, match="Invalid column"):
+            await queries.update_study(db, "s1", not_a_column="x")
+
+    async def test_serialized_config_roundtrip(self, db):
+        payload = {"name": "s1", "cluster": "c1", "extra": [1, 2, 3]}
+        await queries.create_study(
+            db,
+            "s1",
+            "c1",
+            None,
+            None,
+            "./sp",
+            config_json=json.dumps(payload),
+            yaml_config_json=json.dumps(payload),
+        )
+        row = await queries.get_study(db, "s1")
+        assert json.loads(row["config_json"]) == payload
+        assert json.loads(row["yaml_config_json"]) == payload
+
 
 class TestSprintQueries:
     async def test_create_and_get(self, db_with_study):

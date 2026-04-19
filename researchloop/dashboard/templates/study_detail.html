@@ -1,19 +1,46 @@
 {% extends "base.html" %}
 {% block title %}{{ study.name }} — ResearchLoop{% endblock %}
 {% block content %}
-<h2>{{ study.name }}</h2>
+<h2 style="display:flex;align-items:center;gap:0.5rem">
+  {{ study.name }}
+  {% if source == 'ui' %}
+    <span class="badge badge-submitted" style="font-size:0.65rem">ui</span>
+  {% else %}
+    <span class="badge badge-running" style="font-size:0.65rem">yaml</span>
+  {% endif %}
+  {% if is_ui_edited %}
+    <span class="dim" style="font-size:0.75rem">(edited)</span>
+  {% endif %}
+</h2>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if success %}<p class="success">{{ success }}</p>{% endif %}
+
 <div class="card">
   <dl>
     <dt>Cluster</dt><dd>{{ study.cluster }}</dd>
     <dt>Description</dt><dd>{{ study.description or '—' }}</dd>
     <dt>Sprints directory</dt><dd class="dim">{{ study.sprints_dir }}</dd>
   </dl>
+  <div class="actions">
+    <a href="/dashboard/studies/{{ study.name }}/edit" class="btn">Edit</a>
+    {% if has_yaml_version %}
+      <form method="post" action="/dashboard/studies/{{ study.name }}/revert" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn" style="background:#334155" onclick="return confirm('Revert this study to its YAML definition? UI edits will be lost.')">Revert to YAML</button>
+      </form>
+    {% endif %}
+    {% if can_delete %}
+      <form method="post" action="/dashboard/studies/{{ study.name }}/delete" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn-danger" onclick="return confirm('Delete study {{ study.name }}? This cannot be undone.')">Delete</button>
+      </form>
+    {% endif %}
+  </div>
 </div>
 
 <h3>New sprint</h3>
 <div class="card">
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
-  {% if success %}<p class="success">{{ success }}</p>{% endif %}
   <form method="post" action="/dashboard/studies/{{ study.name }}/sprint" onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Submitting...';">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-group">

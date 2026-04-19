@@ -25,6 +25,8 @@ _STUDY_COLUMNS: frozenset[str] = frozenset(
         "sprints_dir",
         "created_at",
         "config_json",
+        "source",
+        "yaml_config_json",
     }
 )
 
@@ -101,16 +103,27 @@ async def create_study(
     claude_md_path: str | None,
     sprints_dir: str,
     config_json: str | None = None,
+    source: str = "yaml",
+    yaml_config_json: str | None = None,
 ) -> dict[str, Any]:
     """Insert a new study and return it."""
     await db.execute(
         """
         INSERT INTO studies
             (name, cluster, description, claude_md_path,
-             sprints_dir, config_json)
-        VALUES (?, ?, ?, ?, ?, ?)
+             sprints_dir, config_json, source, yaml_config_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (name, cluster, description, claude_md_path, sprints_dir, config_json),
+        (
+            name,
+            cluster,
+            description,
+            claude_md_path,
+            sprints_dir,
+            config_json,
+            source,
+            yaml_config_json,
+        ),
     )
     return await get_study(db, name)  # type: ignore[return-value]
 
@@ -138,6 +151,19 @@ async def update_study(db: Database, name: str, **kwargs: Any) -> dict[str, Any]
         values,
     )
     return await get_study(db, name)
+
+
+async def delete_study(db: Database, name: str) -> None:
+    """Delete a study by name."""
+    await db.execute("DELETE FROM studies WHERE name = ?", (name,))
+
+
+async def count_sprints_for_study(db: Database, name: str) -> int:
+    """Return the number of sprints that reference the given study."""
+    row = await db.fetch_one(
+        "SELECT count(*) AS n FROM sprints WHERE study_name = ?", (name,)
+    )
+    return int(row["n"]) if row else 0
 
 
 # ---------------------------------------------------------------------------

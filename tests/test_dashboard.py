@@ -393,6 +393,362 @@ class TestSprintDelete:
             assert "/login" in resp.headers["location"]
 
 
+class TestStudyManagementUI:
+    """CRUD routes for studies in the dashboard."""
+
+    def _base_form(self, **overrides) -> dict[str, str]:
+        data = {
+            "name": "ui-one",
+            "cluster": "local",
+            "description": "Built in UI",
+            "sprints_dir": "./sp",
+            "claude_md_path": "",
+            "context": "",
+            "claude_command": "",
+            "gpu": "",
+            "mem": "",
+            "cpus": "",
+            "job_options_json": "",
+            "max_sprint_duration_hours": "8",
+            "red_team_max_rounds": "3",
+            "allow_loop": "on",
+        }
+        data.update(overrides)
+        return data
+
+    def test_new_study_form_renders(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, _ = _login_and_csrf(client, "secret")
+            resp = client.get(
+                "/dashboard/studies/new",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            assert "New study" in resp.text
+            assert 'name="name"' in resp.text
+            assert "local" in resp.text  # cluster dropdown
+
+    def test_create_ui_study_success(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            form = self._base_form(csrf_token=csrf)
+            resp = client.post(
+                "/dashboard/studies",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert resp.headers["location"] == "/dashboard/studies/ui-one"
+            names = {s.name for s in orch.config.studies}
+            assert "ui-one" in names
+
+    def test_create_ui_study_rejects_unknown_cluster(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            form = self._base_form(csrf_token=csrf, cluster="nope")
+            resp = client.post(
+                "/dashboard/studies",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 400
+            assert "Cluster" in resp.text
+
+    def test_create_ui_study_rejects_bad_name(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            form = self._base_form(csrf_token=csrf, name="Bad Name")
+            resp = client.post(
+                "/dashboard/studies",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 400
+            assert "Name" in resp.text
+
+    def test_create_ui_study_rejects_duplicate(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            # Attempt to create a study with the same name as the YAML study.
+            form = self._base_form(csrf_token=csrf, name="test")
+            resp = client.post(
+                "/dashboard/studies",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 400
+            assert "already exists" in resp.text
+
+    def test_create_ui_study_rejects_bad_json(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            form = self._base_form(
+                csrf_token=csrf,
+                job_options_json="not json",
+            )
+            resp = client.post(
+                "/dashboard/studies",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 400
+            assert "JSON" in resp.text
+
+    def test_create_ui_study_with_advanced_job_options(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            form = self._base_form(
+                csrf_token=csrf,
+                gpu="gpu:a100:1",
+                mem="128G",
+                job_options_json='{"time": "4:00:00"}',
+            )
+            resp = client.post(
+                "/dashboard/studies",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            study = next(s for s in orch.config.studies if s.name == "ui-one")
+            assert study.job_options["gres"] == "gpu:a100:1"
+            assert study.job_options["mem"] == "128G"
+            assert study.job_options["time"] == "4:00:00"
+
+    def test_edit_form_renders(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, _ = _login_and_csrf(client, "secret")
+            resp = client.get(
+                "/dashboard/studies/test/edit",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            assert "readonly" in resp.text  # name is readonly on edit
+            assert "A test study" in resp.text
+
+    def test_edit_study_updates_fields(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            form = self._base_form(
+                csrf_token=csrf,
+                name="test",
+                description="Edited via UI",
+            )
+            resp = client.post(
+                "/dashboard/studies/test/edit",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            study = next(s for s in orch.config.studies if s.name == "test")
+            assert study.description == "Edited via UI"
+
+    def test_edit_rejects_rename(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            form = self._base_form(csrf_token=csrf, name="renamed")
+            resp = client.post(
+                "/dashboard/studies/test/edit",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 400
+            assert "Renaming" in resp.text
+
+    def test_edit_shows_revert_button_for_edited_yaml_study(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            form = self._base_form(
+                csrf_token=csrf,
+                name="test",
+                description="Edited",
+            )
+            client.post(
+                "/dashboard/studies/test/edit",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            resp = client.get(
+                "/dashboard/studies/test",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            assert "Revert to YAML" in resp.text
+            assert "(edited)" in resp.text
+
+    def test_revert_restores_yaml(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            form = self._base_form(
+                csrf_token=csrf,
+                name="test",
+                description="Edited",
+            )
+            client.post(
+                "/dashboard/studies/test/edit",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            # Now revert.
+            resp = client.post(
+                "/dashboard/studies/test/revert",
+                data={"csrf_token": csrf},
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            study = next(s for s in orch.config.studies if s.name == "test")
+            assert study.description == "A test study"
+
+    def test_revert_rejected_for_ui_only_study(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            # Create a UI-only study first.
+            client.post(
+                "/dashboard/studies",
+                data=self._base_form(csrf_token=csrf),
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            resp = client.post(
+                "/dashboard/studies/ui-one/revert",
+                data={"csrf_token": csrf},
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert "error=" in resp.headers["location"]
+
+    def test_delete_ui_study_success(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            client.post(
+                "/dashboard/studies",
+                data=self._base_form(csrf_token=csrf),
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            resp = client.post(
+                "/dashboard/studies/ui-one/delete",
+                data={"csrf_token": csrf},
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert resp.headers["location"] == "/dashboard/"
+            assert await_get_study_none(orch, "ui-one")
+
+    def test_delete_yaml_study_rejected(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            resp = client.post(
+                "/dashboard/studies/test/delete",
+                data={"csrf_token": csrf},
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert "error=" in resp.headers["location"]
+            assert "/dashboard/studies/test" in resp.headers["location"]
+
+    async def test_delete_rejected_when_sprints_exist(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            client.post(
+                "/dashboard/studies",
+                data=self._base_form(csrf_token=csrf),
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            await queries.create_sprint(orch.db, "sp-blk", "ui-one", "blk")
+            resp = client.post(
+                "/dashboard/studies/ui-one/delete",
+                data={"csrf_token": csrf},
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert "error=" in resp.headers["location"]
+
+    def test_csrf_required_on_create(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, _ = _login_and_csrf(client, "secret")
+            resp = client.post(
+                "/dashboard/studies",
+                data=self._base_form(),
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 403
+
+    def test_csrf_required_on_delete(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, _ = _login_and_csrf(client, "secret")
+            resp = client.post(
+                "/dashboard/studies/test/delete",
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 403
+
+    def test_ui_study_visible_on_studies_page(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            client.post(
+                "/dashboard/studies",
+                data=self._base_form(csrf_token=csrf),
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            resp = client.get(
+                "/dashboard/",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            assert "ui-one" in resp.text
+            assert "Built in UI" in resp.text
+
+    def test_unauthenticated_new_study_form_redirects(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            resp = client.get("/dashboard/studies/new", follow_redirects=False)
+            assert resp.status_code == 303
+            assert "/login" in resp.headers["location"]
+
+
+def await_get_study_none(orch, name: str) -> bool:
+    """Helper: synchronously check that a study is gone from in-memory config."""
+    return all(s.name != name for s in orch.config.studies)
+
+
 class TestLoopDetailPage:
     """GET /dashboard/loops/{id}."""
 

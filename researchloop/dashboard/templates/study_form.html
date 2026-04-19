@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'new' %}New study{% else %}Edit {{ study.name }}{% endif %} — ResearchLoop{% endblock %}
+{% block content %}
+{% if mode == 'new' %}
+  <h2>New study</h2>
+{% else %}
+  <h2>Edit study: {{ study.name }}</h2>
+  {% if is_ui_edited %}
+    <p class="dim" style="margin-bottom:0.75rem">This study has been edited in the UI. Its source TOML definition is available via "Revert to YAML" on the study page.</p>
+  {% endif %}
+{% endif %}
+
+<div class="card">
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% set form_action = '/dashboard/studies' if mode == 'new' else '/dashboard/studies/' ~ study.name ~ '/edit' %}
+  <form method="post" action="{{ form_action }}" onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Saving...';">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="form-group">
+      <label for="name">Name</label>
+      <input type="text" name="name" id="name" value="{{ study.name or '' }}"
+             placeholder="my-study"
+             pattern="[a-z0-9][a-z0-9-]*"
+             title="Lowercase letters, digits, and hyphens"
+             required
+             {% if mode == 'edit' %}readonly{% endif %}
+             style="width:100%;padding:0.6rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0;font-size:0.95rem{% if mode == 'edit' %};opacity:0.7{% endif %}">
+      {% if mode == 'edit' %}<p class="dim" style="font-size:0.8rem;margin-top:0.25rem">Renaming studies is not supported.</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="cluster">Cluster</label>
+      <select name="cluster" id="cluster" required>
+        <option value="" {% if not study.cluster %}selected{% endif %}>— select a cluster —</option>
+        {% for c in clusters %}
+          <option value="{{ c.name }}" {% if study.cluster == c.name %}selected{% endif %}>{{ c.name }} ({{ c.scheduler }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="description">Description</label>
+      <input type="text" name="description" id="description" value="{{ study.description or '' }}"
+             placeholder="Short description"
+             style="width:100%;padding:0.6rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0;font-size:0.95rem">
+    </div>
+
+    <div class="form-group">
+      <label for="sprints_dir">Sprints directory <span class="dim">(on cluster)</span></label>
+      <input type="text" name="sprints_dir" id="sprints_dir" value="{{ study.sprints_dir or '' }}"
+             placeholder="/path/to/sprints"
+             required
+             style="width:100%;padding:0.6rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0;font-size:0.95rem">
+    </div>
+
+    <div class="form-group">
+      <label for="claude_md_path">CLAUDE.md path <span class="dim">(optional, local file)</span></label>
+      <input type="text" name="claude_md_path" id="claude_md_path" value="{{ study.claude_md_path or '' }}"
+             placeholder="./studies/my-study/CLAUDE.md"
+             style="width:100%;padding:0.6rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0;font-size:0.95rem">
+    </div>
+
+    <div class="form-group">
+      <label for="context">Inline context <span class="dim">(optional, merged with CLAUDE.md)</span></label>
+      <textarea name="context" id="context" rows="6" placeholder="Background information, constraints, or instructions...">{{ study.context or '' }}</textarea>
+    </div>
+
+    <div class="form-group">
+      <label for="claude_command">Claude command override <span class="dim">(optional)</span></label>
+      <input type="text" name="claude_command" id="claude_command" value="{{ study.claude_command or '' }}"
+             placeholder="claude --dangerously-skip-permissions"
+             style="width:100%;padding:0.6rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0;font-size:0.95rem">
+    </div>
+
+    <details style="margin-bottom:0.75rem" {% if study.gpu or study.mem or study.cpus or study.job_options_raw %}open{% endif %}>
+      <summary class="dim" style="cursor:pointer;font-size:0.85rem">Job options (overrides the cluster defaults)</summary>
+      <div style="display:flex;gap:0.75rem;margin-top:0.5rem;flex-wrap:wrap">
+        <div class="form-group" style="margin:0">
+          <label for="gpu" style="font-size:0.8rem">GPU (gres)</label>
+          <input type="text" name="gpu" id="gpu" value="{{ study.gpu or '' }}" placeholder="e.g. gpu:1" style="width:140px;padding:0.4rem;font-size:0.85rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label for="mem" style="font-size:0.8rem">Memory</label>
+          <input type="text" name="mem" id="mem" value="{{ study.mem or '' }}" placeholder="e.g. 64G" style="width:100px;padding:0.4rem;font-size:0.85rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label for="cpus" style="font-size:0.8rem">CPUs-per-task</label>
+          <input type="text" name="cpus" id="cpus" value="{{ study.cpus or '' }}" placeholder="e.g. 8" style="width:80px;padding:0.4rem;font-size:0.85rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0">
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:0.75rem">
+        <label for="job_options_json" style="font-size:0.8rem">Additional options <span class="dim">(JSON object, overrides the fields above)</span></label>
+        <textarea name="job_options_json" id="job_options_json" rows="3" placeholder='{"time": "8:00:00", "partition": "gpu"}' style="font-size:0.85rem">{% if study.job_options_raw is defined %}{{ study.job_options_raw }}{% elif study.job_options %}{{ study.job_options|tojson }}{% endif %}</textarea>
+      </div>
+    </details>
+
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+      <div class="form-group">
+        <label for="max_sprint_duration_hours">Max sprint duration (hours)</label>
+        <input type="number" name="max_sprint_duration_hours" id="max_sprint_duration_hours"
+               value="{{ study.max_sprint_duration_hours or 8 }}" min="1" required
+               style="width:100px;padding:0.6rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0;font-size:0.95rem">
+      </div>
+      <div class="form-group">
+        <label for="red_team_max_rounds">Red-team max rounds</label>
+        <input type="number" name="red_team_max_rounds" id="red_team_max_rounds"
+               value="{{ study.red_team_max_rounds if study.red_team_max_rounds is not none else 3 }}" min="0" required
+               style="width:100px;padding:0.6rem;background:#0f172a;border:1px solid #334155;border-radius:0.375rem;color:#e2e8f0;font-size:0.95rem">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label style="display:inline-flex;align-items:center;gap:0.5rem;cursor:pointer">
+        <input type="checkbox" name="allow_loop" value="on" {% if study.allow_loop or (study.allow_loop is not defined and mode == 'new') %}checked{% endif %}>
+        <span>Allow auto-loops for this study</span>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="btn">{% if mode == 'new' %}Create study{% else %}Save changes{% endif %}</button>
+      {% if mode == 'new' %}
+        <a href="/dashboard/" class="btn" style="background:#334155">Cancel</a>
+      {% else %}
+        <a href="/dashboard/studies/{{ study.name }}" class="btn" style="background:#334155">Cancel</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}

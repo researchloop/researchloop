@@ -16,6 +16,7 @@ from fastapi.responses import (
 )
 from starlette.templating import Jinja2Templates
 
+from researchloop.core.config import StudyConfig
 from researchloop.dashboard.auth import (
     SESSION_COOKIE,
     SessionManager,
@@ -124,6 +125,154 @@ def add_dashboard_routes(
         if cpus:
             opts["cpus-per-task"] = cpus
         return opts
+
+    def _study_from_form(form: object, existing_name: str | None = None) -> StudyConfig:
+        """Build a StudyConfig from form data.
+
+        Merges the friendly GPU/Memory/CPUs fields with an optional
+        ``job_options_json`` textarea whose keys override the friendly
+        fields.
+        """
+
+        def _get(key: str, default: str = "") -> str:
+            return str(getattr(form, "get", lambda k, d: d)(key, default))
+
+        name = _get("name", existing_name or "").strip()
+        opts = _parse_job_options(form)
+        advanced = _get("job_options_json", "").strip()
+        if advanced:
+            try:
+                extra = json.loads(advanced)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid job_options JSON: {exc}") from exc
+            if not isinstance(extra, dict):
+                raise ValueError("job_options_json must be a JSON object")
+            for k, v in extra.items():
+                opts[str(k)] = "" if v is None else str(v)
+
+        def _int(key: str, default: int) -> int:
+            raw = _get(key, "").strip()
+            if not raw:
+                return default
+            try:
+                return int(raw)
+            except ValueError as exc:
+                raise ValueError(f"{key} must be an integer") from exc
+
+        return StudyConfig(
+            name=name,
+            cluster=_get("cluster").strip(),
+            description=_get("description").strip(),
+            claude_md_path=_get("claude_md_path").strip(),
+            context=_get("context"),
+            sprints_dir=_get("sprints_dir").strip(),
+            claude_command=_get("claude_command").strip(),
+            job_options=opts,
+            max_sprint_duration_hours=_int("max_sprint_duration_hours", 8),
+            red_team_max_rounds=_int("red_team_max_rounds", 3),
+            allow_loop=_get("allow_loop", "").lower() in ("on", "true", "1", "yes"),
+        )
+
+    def _study_detail_url(name: str) -> str:
+        return f"/dashboard/studies/{name}"
+
+    def _study_form_context(
+        request: Request,
+        *,
+        mode: str,
+        study: dict[str, Any] | None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        """Build the rendering context for ``study_form.html``."""
+        clusters = [
+            {"name": c.name, "scheduler": c.scheduler_type}
+            for c in orchestrator.config.clusters
+        ]
+        has_yaml_version = False
+        is_ui_edited = False
+        if study is not None:
+            yaml_json = study.get("yaml_config_json")
+            if yaml_json:
+                has_yaml_version = yaml_json != study.get("config_json")
+                is_ui_edited = has_yaml_version
+        return _ctx(
+            request,
+            authenticated=True,
+            mode=mode,
+            study=study or {},
+            clusters=clusters,
+            error=error,
+            has_yaml_version=has_yaml_version,
+            is_ui_edited=is_ui_edited,
+        )
+
+    def _study_row_to_form_dict(row: dict[str, Any]) -> dict[str, Any]:
+        """Convert a DB row into the shape expected by the study form."""
+        cfg_json = row.get("config_json")
+        cfg: dict[str, Any] = {}
+        if cfg_json:
+            try:
+                cfg = json.loads(cfg_json)
+            except json.JSONDecodeError:
+                cfg = {}
+        opts = cfg.get("job_options") or {}
+        return {
+            "name": row["name"],
+            "cluster": cfg.get("cluster", row.get("cluster", "")),
+            "description": cfg.get("description", row.get("description") or ""),
+            "claude_md_path": cfg.get(
+                "claude_md_path", row.get("claude_md_path") or ""
+            ),
+            "context": cfg.get("context", ""),
+            "sprints_dir": cfg.get("sprints_dir", row.get("sprints_dir") or ""),
+            "claude_command": cfg.get("claude_command", ""),
+            "job_options": opts,
+            "gpu": opts.get("gres", ""),
+            "mem": opts.get("mem", ""),
+            "cpus": opts.get("cpus-per-task", ""),
+            "max_sprint_duration_hours": cfg.get("max_sprint_duration_hours", 8),
+            "red_team_max_rounds": cfg.get("red_team_max_rounds", 3),
+            "allow_loop": cfg.get("allow_loop", True),
+            "source": row.get("source") or "yaml",
+            "yaml_config_json": row.get("yaml_config_json"),
+            "config_json": cfg_json,
+        }
+
+    def _form_to_study_dict(form: object, *, name: str | None = None) -> dict[str, Any]:
+        """Convert raw form data into the shape expected by the form template.
+
+        Used when validation fails so we can re-render with the user's
+        unsaved input. Unlike ``_study_from_form``, this does not raise.
+        """
+
+        def _get(key: str, default: str = "") -> str:
+            return str(getattr(form, "get", lambda k, d: d)(key, default))
+
+        try:
+            max_hours = int(_get("max_sprint_duration_hours", "8") or 8)
+        except ValueError:
+            max_hours = 8
+        try:
+            red_team = int(_get("red_team_max_rounds", "3") or 3)
+        except ValueError:
+            red_team = 3
+
+        return {
+            "name": name or _get("name").strip(),
+            "cluster": _get("cluster").strip(),
+            "description": _get("description").strip(),
+            "claude_md_path": _get("claude_md_path").strip(),
+            "context": _get("context"),
+            "sprints_dir": _get("sprints_dir").strip(),
+            "claude_command": _get("claude_command").strip(),
+            "gpu": _get("gpu").strip(),
+            "mem": _get("mem").strip(),
+            "cpus": _get("cpus").strip(),
+            "job_options_raw": _get("job_options_json"),
+            "max_sprint_duration_hours": max_hours,
+            "red_team_max_rounds": red_team,
+            "allow_loop": _get("allow_loop", "").lower() in ("on", "true", "1", "yes"),
+        }
 
     def _csrf_token(request: Request) -> str:
         """Return a CSRF token for the current session, or empty string."""
@@ -354,18 +503,53 @@ def add_dashboard_routes(
                 study_name=s["name"],
                 limit=10000,
             )
+            yaml_json = s.get("yaml_config_json")
+            config_json = s.get("config_json")
             study_list.append(
                 {
                     "name": s["name"],
                     "cluster": s.get("cluster", ""),
                     "description": s.get("description", ""),
                     "sprint_count": len(sprints),
+                    "source": s.get("source") or "yaml",
+                    "is_ui_edited": bool(yaml_json) and yaml_json != config_json,
                 }
             )
         return templates.TemplateResponse(
             "studies.html",
             _ctx(request, authenticated=True, studies=study_list),
         )
+
+    @app.get("/dashboard/studies/new")
+    async def dashboard_study_new_form(request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        return templates.TemplateResponse(
+            "study_form.html",
+            _study_form_context(request, mode="new", study=None),
+        )
+
+    @app.post("/dashboard/studies")
+    async def dashboard_study_create(request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        await _check_csrf(request)
+        assert orchestrator.study_manager is not None
+
+        form = await request.form()
+        try:
+            cfg = _study_from_form(form)
+            await orchestrator.study_manager.create_study_from_ui(cfg)
+        except ValueError as exc:
+            study_dict = _form_to_study_dict(form)
+            return templates.TemplateResponse(
+                "study_form.html",
+                _study_form_context(
+                    request, mode="new", study=study_dict, error=str(exc)
+                ),
+                status_code=400,
+            )
+        return RedirectResponse(_study_detail_url(cfg.name), status_code=303)
 
     @app.get("/dashboard/studies/{name}")
     async def dashboard_study_detail(name: str, request: Request):  # type: ignore[no-untyped-def]
@@ -388,6 +572,14 @@ def add_dashboard_routes(
                     default_opts = {**c.job_options, **s.job_options}
                     break
 
+        yaml_json = study.get("yaml_config_json")
+        config_json = study.get("config_json")
+        is_ui_edited = bool(yaml_json) and yaml_json != config_json
+        has_yaml_version = is_ui_edited
+        source = study.get("source") or "yaml"
+        sprint_count = await queries.count_sprints_for_study(orchestrator.db, name)
+        can_delete = source == "ui" and yaml_json is None and sprint_count == 0
+
         return templates.TemplateResponse(
             "study_detail.html",
             _ctx(
@@ -399,8 +591,101 @@ def add_dashboard_routes(
                 default_gpu=default_opts.get("gres", ""),
                 default_mem=default_opts.get("mem", ""),
                 default_cpus=default_opts.get("cpus-per-task", ""),
+                source=source,
+                is_ui_edited=is_ui_edited,
+                has_yaml_version=has_yaml_version,
+                can_delete=can_delete,
+                sprint_count=sprint_count,
+                error=request.query_params.get("error"),
+                success=request.query_params.get("success"),
             ),
         )
+
+    @app.get("/dashboard/studies/{name}/edit")
+    async def dashboard_study_edit_form(name: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.db is not None
+
+        study = await queries.get_study(orchestrator.db, name)
+        if study is None:
+            raise HTTPException(status_code=404, detail="Study not found")
+
+        form_study = _study_row_to_form_dict(study)
+        return templates.TemplateResponse(
+            "study_form.html",
+            _study_form_context(request, mode="edit", study=form_study),
+        )
+
+    @app.post("/dashboard/studies/{name}/edit")
+    async def dashboard_study_edit(name: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        await _check_csrf(request)
+        assert orchestrator.db is not None
+        assert orchestrator.study_manager is not None
+
+        existing = await queries.get_study(orchestrator.db, name)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Study not found")
+
+        form = await request.form()
+        try:
+            cfg = _study_from_form(form, existing_name=name)
+            if cfg.name != name:
+                raise ValueError("Renaming studies is not supported")
+            await orchestrator.study_manager.update_study_from_ui(name, cfg)
+        except ValueError as exc:
+            study_dict = _form_to_study_dict(form, name=name)
+            # Preserve yaml_config_json/config_json flags from DB for the
+            # form context so the "revert" button state is correct.
+            study_dict["yaml_config_json"] = existing.get("yaml_config_json")
+            study_dict["config_json"] = existing.get("config_json")
+            study_dict["source"] = existing.get("source") or "yaml"
+            return templates.TemplateResponse(
+                "study_form.html",
+                _study_form_context(
+                    request, mode="edit", study=study_dict, error=str(exc)
+                ),
+                status_code=400,
+            )
+        return RedirectResponse(_study_detail_url(name), status_code=303)
+
+    @app.post("/dashboard/studies/{name}/revert")
+    async def dashboard_study_revert(name: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        await _check_csrf(request)
+        assert orchestrator.study_manager is not None
+
+        try:
+            await orchestrator.study_manager.revert_study_to_yaml(name)
+        except ValueError as exc:
+            from urllib.parse import quote
+
+            return RedirectResponse(
+                f"{_study_detail_url(name)}?error={quote(str(exc))}",
+                status_code=303,
+            )
+        return RedirectResponse(_study_detail_url(name), status_code=303)
+
+    @app.post("/dashboard/studies/{name}/delete")
+    async def dashboard_study_delete(name: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        await _check_csrf(request)
+        assert orchestrator.study_manager is not None
+
+        try:
+            await orchestrator.study_manager.delete_ui_study(name)
+        except ValueError as exc:
+            from urllib.parse import quote
+
+            return RedirectResponse(
+                f"{_study_detail_url(name)}?error={quote(str(exc))}",
+                status_code=303,
+            )
+        return RedirectResponse("/dashboard/", status_code=303)
 
     # ----------------------------------------------------------
     # Sprints
