@@ -581,6 +581,111 @@ class TestStudyManagementUI:
             assert "readonly" in resp.text  # name is readonly on edit
             assert "A test study" in resp.text
 
+    def test_edit_form_populates_all_yaml_fields(self):
+        """Every YAML-defined field should appear as an input value so users
+        can make small tweaks without consulting the TOML."""
+        config = Config(
+            studies=[
+                StudyConfig(
+                    name="rich",
+                    cluster="local",
+                    description="Rich study",
+                    claude_md_path="./studies/rich/CLAUDE.md",
+                    context="# Multi-line\ncontext value\n",
+                    sprints_dir="/scratch/rich",
+                    claude_command="claude --custom",
+                    job_options={
+                        "gres": "gpu:a100:2",
+                        "mem": "128G",
+                        "cpus-per-task": "16",
+                        "time": "12:00:00",
+                    },
+                    max_sprint_duration_hours=12,
+                    red_team_max_rounds=5,
+                    allow_loop=False,
+                ),
+            ],
+            clusters=[
+                ClusterConfig(name="local", host="localhost", scheduler_type="local"),
+            ],
+            db_path=":memory:",
+            artifact_dir=tempfile.mkdtemp(),
+            shared_secret="test-key",
+            dashboard=DashboardConfig(password_hash=hash_password("secret")),
+        )
+        orch = Orchestrator(config)
+        app = create_app(orch)
+        client = TestClient(app)
+        with client:
+            cookie, _ = _login_and_csrf(client, "secret")
+            resp = client.get(
+                "/dashboard/studies/rich/edit",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            text = resp.text
+            # Friendly fields prefilled from job_options
+            assert 'value="gpu:a100:2"' in text
+            assert 'value="128G"' in text
+            assert 'value="16"' in text
+            # Other TOML values
+            assert 'value="Rich study"' in text
+            assert 'value="./studies/rich/CLAUDE.md"' in text
+            assert 'value="/scratch/rich"' in text
+            assert 'value="claude --custom"' in text
+            # Multi-line context rendered inside textarea
+            assert "# Multi-line" in text
+            assert "context value" in text
+            # Numeric + boolean fields
+            assert 'value="12"' in text  # max_sprint_duration_hours
+            assert 'value="5"' in text  # red_team_max_rounds
+            # allow_loop=False → checkbox NOT checked
+            assert 'name="allow_loop"' in text
+            # 'time' key from advanced job_options is surfaced in JSON textarea
+            assert "12:00:00" in text
+
+    def test_edit_form_handles_yaml_study_without_sprints_dir(self):
+        """Server studies often omit sprints_dir; editing must still work."""
+        config = Config(
+            studies=[
+                StudyConfig(
+                    name="no-dir",
+                    cluster="local",
+                    description="No sprints dir",
+                    sprints_dir="",
+                ),
+            ],
+            clusters=[
+                ClusterConfig(name="local", host="localhost", scheduler_type="local"),
+            ],
+            db_path=":memory:",
+            artifact_dir=tempfile.mkdtemp(),
+            shared_secret="test-key",
+            dashboard=DashboardConfig(password_hash=hash_password("secret")),
+        )
+        orch = Orchestrator(config)
+        app = create_app(orch)
+        client = TestClient(app)
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            # Editing without setting sprints_dir should succeed.
+            form = self._base_form(
+                csrf_token=csrf,
+                name="no-dir",
+                sprints_dir="",
+                description="Tweaked",
+            )
+            resp = client.post(
+                "/dashboard/studies/no-dir/edit",
+                data=form,
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            study = next(s for s in orch.config.studies if s.name == "no-dir")
+            assert study.description == "Tweaked"
+            assert study.sprints_dir == ""
+
     def test_edit_study_updates_fields(self):
         client, orch, _ = _make_app_with_password("secret")
         with client:

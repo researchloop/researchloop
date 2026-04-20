@@ -245,8 +245,6 @@ class StudyManager:
         cluster_names = {c.name for c in self.config.clusters}
         if cfg.cluster not in cluster_names:
             raise ValueError(f"Cluster {cfg.cluster!r} is not defined")
-        if not cfg.sprints_dir.strip():
-            raise ValueError("Sprints directory is required")
         if cfg.max_sprint_duration_hours < 1:
             raise ValueError("max_sprint_duration_hours must be >= 1")
         if cfg.red_team_max_rounds < 0:

@@ -203,12 +203,14 @@ class TestStudyManagerUIMutations:
         with pytest.raises(ValueError, match="Cluster"):
             await mgr.create_study_from_ui(bad)
 
-    async def test_create_study_from_ui_rejects_empty_sprints_dir(self, db):
+    async def test_create_study_from_ui_allows_empty_sprints_dir(self, db):
+        """sprints_dir is optional; falls back to cluster.working_dir/<name>."""
         mgr = StudyManager(db, self._config())
         await mgr.sync_from_config()
-        bad = StudyConfig(name="x", cluster="local", sprints_dir="")
-        with pytest.raises(ValueError, match="Sprints directory"):
-            await mgr.create_study_from_ui(bad)
+        cfg = StudyConfig(name="x", cluster="local", sprints_dir="")
+        await mgr.create_study_from_ui(cfg)
+        row = await queries.get_study(db, "x")
+        assert row is not None
 
     async def test_update_study_from_ui_rejects_rename(self, db, sample_config):
         mgr = StudyManager(db, sample_config)
