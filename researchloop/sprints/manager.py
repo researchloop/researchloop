@@ -36,6 +36,20 @@ def _b64encode(text: str) -> str:
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
+def _merge_job_options(*layers: dict[str, str]) -> dict[str, str]:
+    """Merge job-option layers left-to-right; later layers override.
+
+    An empty-string value acts as an explicit clear — the key is removed
+    from the merged result. This lets the dashboard signal "no GPU" by
+    submitting an empty ``gres`` even when the study defaults include one.
+    """
+    merged: dict[str, str] = {}
+    for layer in layers:
+        for k, v in layer.items():
+            merged[k] = v
+    return {k: v for k, v in merged.items() if v != ""}
+
+
 # Jinja2 environment pointing at the runner/job_templates directory.
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "runner" / "job_templates"
 _jinja_env = jinja2.Environment(
@@ -350,11 +364,11 @@ class SprintManager:
                 else "8:00:00"
             ),
             environment=cluster_cfg.environment,
-            job_options={
-                **cluster_cfg.job_options,
-                **(study_cfg.job_options if study_cfg else {}),
-                **(extra_job_options or {}),
-            },
+            job_options=_merge_job_options(
+                cluster_cfg.job_options,
+                study_cfg.job_options if study_cfg else {},
+                extra_job_options or {},
+            ),
             claude_command=(
                 (study_cfg.claude_command if study_cfg else "")
                 or cluster_cfg.claude_command
@@ -927,11 +941,11 @@ class SprintManager:
             job_name=f"rl-{tweak_id}",
             time_limit=time_limit,
             environment=cluster_cfg.environment,
-            job_options={
-                **cluster_cfg.job_options,
-                **(study_cfg.job_options if study_cfg else {}),
-                **(job_options or {}),
-            },
+            job_options=_merge_job_options(
+                cluster_cfg.job_options,
+                study_cfg.job_options if study_cfg else {},
+                job_options or {},
+            ),
             claude_command=(
                 (study_cfg.claude_command if study_cfg else "")
                 or cluster_cfg.claude_command

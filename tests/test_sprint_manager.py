@@ -11,7 +11,7 @@ from researchloop.core.config import (
 )
 from researchloop.core.models import SprintStatus
 from researchloop.db import queries
-from researchloop.sprints.manager import SprintManager
+from researchloop.sprints.manager import SprintManager, _merge_job_options
 from researchloop.studies.manager import StudyManager
 
 
@@ -688,3 +688,140 @@ class TestContextMerging:
         content = _extract_context(ssh_mock)
         assert content is not None
         assert "SAELens docs at ..." in content
+
+
+def _extract_job_script(ssh_mock: AsyncMock) -> str | None:
+    """Decode the uploaded base64 job script from SSH mock calls."""
+    import base64
+
+    for call in ssh_mock.run.call_args_list:
+        cmd = call.args[0] if call.args else ""
+        if "run_sprint.sh" in cmd and "base64 -d" in cmd:
+            start = cmd.index("'") + 1
+            end = cmd.index("'", start)
+            return base64.b64decode(cmd[start:end]).decode("utf-8")
+    return None
+
+
+class TestMergeJobOptions:
+    def test_later_overrides_earlier(self):
+        merged = _merge_job_options(
+            {"gres": "gpu:1", "mem": "32G"},
+            {"mem": "64G"},
+        )
+        assert merged == {"gres": "gpu:1", "mem": "64G"}
+
+    def test_empty_value_clears_inherited_key(self):
+        merged = _merge_job_options(
+            {"gres": "gpu:1", "mem": "32G"},
+            {"gres": ""},
+        )
+        assert merged == {"mem": "32G"}
+
+    def test_empty_in_base_layer_is_dropped(self):
+        merged = _merge_job_options({"gres": ""}, {"mem": "32G"})
+        assert merged == {"mem": "32G"}
+
+    def test_all_three_layers(self):
+        merged = _merge_job_options(
+            {"gres": "gpu:1", "mem": "32G", "cpus-per-task": "4"},
+            {"mem": "64G"},
+            {"gres": "", "cpus-per-task": "8"},
+        )
+        assert merged == {"mem": "64G", "cpus-per-task": "8"}
+
+
+class TestSubmitSprintJobOptions:
+    """Verify empty overrides clear upstream defaults in the rendered script."""
+
+    async def test_empty_gres_override_omits_gres_directive(
+        self, db_with_study, tmp_path
+    ):
+        config = Config(
+            studies=[
+                StudyConfig(
+                    name="test-study",
+                    cluster="local",
+                    sprints_dir=str(tmp_path / "sprints"),
+                    job_options={"gres": "gpu:1", "mem": "32G"},
+                ),
+            ],
+            clusters=[
+                ClusterConfig(
+                    name="local",
+                    host="localhost",
+                    scheduler_type="slurm",
+                    working_dir=str(tmp_path / "work"),
+                ),
+            ],
+            db_path=":memory:",
+            artifact_dir=str(tmp_path / "artifacts"),
+            shared_secret="test",
+            orchestrator_url="http://localhost:8080",
+        )
+
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id, extra_job_options={"gres": ""})
+
+        script = _extract_job_script(ssh_mock)
+        assert script is not None
+        assert "#SBATCH --gres" not in script
+        assert "#SBATCH --mem=32G" in script
+
+    async def test_non_empty_override_replaces_default(self, db_with_study, tmp_path):
+        config = Config(
+            studies=[
+                StudyConfig(
+                    name="test-study",
+                    cluster="local",
+                    sprints_dir=str(tmp_path / "sprints"),
+                    job_options={"gres": "gpu:1"},
+                ),
+            ],
+            clusters=[
+                ClusterConfig(
+                    name="local",
+                    host="localhost",
+                    scheduler_type="slurm",
+                    working_dir=str(tmp_path / "work"),
+                ),
+            ],
+            db_path=":memory:",
+            artifact_dir=str(tmp_path / "artifacts"),
+            shared_secret="test",
+            orchestrator_url="http://localhost:8080",
+        )
+
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id, extra_job_options={"gres": "gpu:a100:2"})
+
+        script = _extract_job_script(ssh_mock)
+        assert script is not None
+        assert "#SBATCH --gres=gpu:a100:2" in script
+        assert "#SBATCH --gres=gpu:1" not in script

@@ -30,7 +30,11 @@
       {% endif %}
       <form method="post" action="/dashboard/sprints/{{ sprint.id }}/delete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% if sprint.status not in ('completed', 'failed', 'cancelled') %}
+        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('This sprint is still {{ sprint.status.split(' ')[0] }}. Deleting it only removes the record from ResearchLoop — the cluster job will keep running and use resources until you cancel it on the cluster yourself. Cancel the sprint first if you want it stopped. Proceed with deletion anyway?')">Delete</button>
+        {% else %}
         <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete this sprint? This cannot be undone.')">Delete</button>
+        {% endif %}
       </form>
       {% if sprint.status in ('failed', 'cancelled') %}
       <form method="post" action="/dashboard/sprints/{{ sprint.id }}/resubmit" onsubmit="var b=this.querySelector('button');if(b.disabled)return false;b.disabled=true;b.textContent='Resubmitting...';">
@@ -103,7 +107,7 @@
       <textarea name="instruction" rows="3" placeholder="e.g. Fix the axis labels on the scatter plots, add a histogram of residuals"></textarea>
     </div>
     <details style="margin-bottom:0.75rem">
-      <summary class="dim" style="cursor:pointer;font-size:0.85rem">Resource settings</summary>
+      <summary class="dim" style="cursor:pointer;font-size:0.85rem">Resource settings <span class="dim">(leave a field blank to skip that allocation)</span></summary>
       <div style="display:flex;gap:0.75rem;margin-top:0.5rem;flex-wrap:wrap">
         <div class="form-group" style="margin:0">
           <label for="tweak-gpu" style="font-size:0.8rem">GPU</label>

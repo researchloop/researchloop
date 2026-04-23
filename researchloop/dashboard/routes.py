@@ -112,17 +112,25 @@ def add_dashboard_routes(
     async def _needs_setup() -> bool:
         return await _get_password_hash() is None
 
-    def _parse_job_options(form: object) -> dict[str, str]:
-        """Extract GPU/memory/CPU overrides from form data."""
+    def _parse_job_options(
+        form: object, *, allow_clear: bool = False
+    ) -> dict[str, str]:
+        """Extract GPU/memory/CPU overrides from form data.
+
+        With ``allow_clear=True``, fields that were rendered but left
+        empty are returned as empty-string values. The merging code in
+        SprintManager treats those as an explicit clear of any upstream
+        default (e.g. "no GPU even though the study defaults to one").
+        """
         opts: dict[str, str] = {}
         gpu = str(getattr(form, "get", lambda k, d: d)("gpu", "")).strip()
         mem = str(getattr(form, "get", lambda k, d: d)("mem", "")).strip()
         cpus = str(getattr(form, "get", lambda k, d: d)("cpus", "")).strip()
-        if gpu:
+        if gpu or allow_clear:
             opts["gres"] = gpu
-        if mem:
+        if mem or allow_clear:
             opts["mem"] = mem
-        if cpus:
+        if cpus or allow_clear:
             opts["cpus-per-task"] = cpus
         return opts
 
@@ -700,6 +708,20 @@ def add_dashboard_routes(
         sprints = await queries.list_sprints(orchestrator.db, limit=100)
         study_rows = await queries.list_studies(orchestrator.db)
         study_names = [s["name"] for s in study_rows]
+
+        # Build per-study default job options for the form JS.
+        cluster_map = {c.name: c for c in orchestrator.config.clusters}
+        study_defaults: dict[str, dict[str, str]] = {}
+        for s in orchestrator.config.studies:
+            if s.name in study_names:
+                c = cluster_map.get(s.cluster)
+                opts = {**(c.job_options if c else {}), **s.job_options}
+                study_defaults[s.name] = {
+                    "gpu": opts.get("gres", ""),
+                    "mem": opts.get("mem", ""),
+                    "cpus": opts.get("cpus-per-task", ""),
+                }
+
         return templates.TemplateResponse(
             "sprints.html",
             _ctx(
@@ -707,6 +729,7 @@ def add_dashboard_routes(
                 authenticated=True,
                 sprints=sprints,
                 studies=study_names,
+                study_defaults_json=json.dumps(study_defaults),
             ),
         )
 
@@ -1128,7 +1151,7 @@ def add_dashboard_routes(
                 status_code=303,
             )
 
-        job_opts = _parse_job_options(form)
+        job_opts = _parse_job_options(form, allow_clear=True)
         time_limit = str(form.get("time_limit", "")).strip() or None
 
         try:
@@ -1248,7 +1271,7 @@ def add_dashboard_routes(
         if not study_name or not idea:
             return RedirectResponse("/dashboard/sprints", status_code=303)
 
-        job_opts = _parse_job_options(form)
+        job_opts = _parse_job_options(form, allow_clear=True)
         try:
             sprint = await orchestrator.sprint_manager.run_sprint(
                 study_name, idea, job_options=job_opts or None
@@ -1277,7 +1300,7 @@ def add_dashboard_routes(
                 status_code=303,
             )
 
-        job_opts = _parse_job_options(form)
+        job_opts = _parse_job_options(form, allow_clear=True)
         try:
             sprint = await orchestrator.sprint_manager.run_sprint(
                 name, idea, job_options=job_opts or None
@@ -1425,7 +1448,7 @@ def add_dashboard_routes(
         except ValueError:
             count = 5
 
-        job_opts = _parse_job_options(form)
+        job_opts = _parse_job_options(form, allow_clear=True)
         try:
             loop_id = await orchestrator.auto_loop.start(
                 study_name,
