@@ -15,6 +15,18 @@
     {% if sprint.loop_id %}<dt>Loop</dt><dd><a href="/dashboard/loops/{{ sprint.loop_id }}">{{ sprint.loop_id }}</a></dd>{% endif %}
     <dt>Job ID</dt><dd>{{ sprint.job_id or '—' }}</dd>
     <dt>Directory</dt><dd class="dim">{{ sprint.directory or '—' }}</dd>
+    {% if submitted_job_options or submitted_time_limit %}
+    <dt>Resources</dt><dd>
+      {% set parts = [] %}
+      {% if submitted_job_options.get('gres') %}{% set _ = parts.append('GPU: ' + submitted_job_options['gres']) %}{% endif %}
+      {% if submitted_job_options.get('mem') %}{% set _ = parts.append('Mem: ' + submitted_job_options['mem']) %}{% endif %}
+      {% if submitted_job_options.get('cpus-per-task') %}{% set _ = parts.append('CPUs: ' + submitted_job_options['cpus-per-task']) %}{% endif %}
+      {% if submitted_time_limit %}{% set _ = parts.append('Time: ' + submitted_time_limit) %}{% endif %}
+      {% set known = ['gres', 'mem', 'cpus-per-task'] %}
+      {% for k, v in submitted_job_options.items() %}{% if k not in known %}{% set _ = parts.append(k + ': ' + v) %}{% endif %}{% endfor %}
+      {{ parts|join(' · ') if parts else '—' }}
+    </dd>
+    {% endif %}
     <dt>Created</dt><dd>{{ sprint.created_at }}</dd>
     <dt>Started</dt><dd id="sprint-started">{{ sprint.started_at or '—' }}</dd>
     <dt>Completed</dt><dd id="sprint-completed">{{ sprint.completed_at or '—' }}</dd>

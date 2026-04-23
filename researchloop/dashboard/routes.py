@@ -758,6 +758,8 @@ def add_dashboard_routes(
         red_team = None
         fixes = None
         progress = None
+        submitted_job_options: dict[str, str] = {}
+        submitted_time_limit: str | None = None
         meta = sprint.get("metadata_json")
         if meta:
             try:
@@ -768,6 +770,12 @@ def add_dashboard_routes(
                 red_team = md.get("red_team")
                 fixes = md.get("fixes")
                 progress = md.get("progress")
+                jo = md.get("job_options")
+                if isinstance(jo, dict):
+                    submitted_job_options = {str(k): str(v) for k, v in jo.items()}
+                tl = md.get("time_limit")
+                if isinstance(tl, str):
+                    submitted_time_limit = tl
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -801,6 +809,8 @@ def add_dashboard_routes(
                 default_mem=default_opts.get("mem", ""),
                 default_cpus=default_opts.get("cpus-per-task", ""),
                 default_time_limit=default_time_limit,
+                submitted_job_options=submitted_job_options,
+                submitted_time_limit=submitted_time_limit,
             ),
         )
 

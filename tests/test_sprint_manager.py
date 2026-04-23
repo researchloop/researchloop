@@ -781,6 +781,58 @@ class TestSubmitSprintJobOptions:
         assert "#SBATCH --gres" not in script
         assert "#SBATCH --mem=32G" in script
 
+    async def test_merged_options_and_time_limit_saved_to_metadata(
+        self, db_with_study, tmp_path
+    ):
+        config = Config(
+            studies=[
+                StudyConfig(
+                    name="test-study",
+                    cluster="local",
+                    sprints_dir=str(tmp_path / "sprints"),
+                    job_options={"gres": "gpu:1", "mem": "32G"},
+                    max_sprint_duration_hours=4,
+                ),
+            ],
+            clusters=[
+                ClusterConfig(
+                    name="local",
+                    host="localhost",
+                    scheduler_type="slurm",
+                    working_dir=str(tmp_path / "work"),
+                ),
+            ],
+            db_path=":memory:",
+            artifact_dir=str(tmp_path / "artifacts"),
+            shared_secret="test",
+            orchestrator_url="http://localhost:8080",
+        )
+
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id, extra_job_options={"cpus-per-task": "8"})
+
+        row = await queries.get_sprint(db_with_study, sprint.id)
+        assert row is not None
+        meta = json.loads(row["metadata_json"])
+        assert meta["job_options"] == {
+            "gres": "gpu:1",
+            "mem": "32G",
+            "cpus-per-task": "8",
+        }
+        assert meta["time_limit"] == "4:00:00"
+
     async def test_non_empty_override_replaces_default(self, db_with_study, tmp_path):
         config = Config(
             studies=[

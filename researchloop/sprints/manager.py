@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import jinja2
 
@@ -348,6 +348,18 @@ class SprintManager:
                 }
             )
 
+        # Resolve the final job resources for submission. Stored on the
+        # sprint so the dashboard can display what the job was launched
+        # with (including any form overrides that cleared defaults).
+        time_limit = (
+            f"{study_cfg.max_sprint_duration_hours}:00:00" if study_cfg else "8:00:00"
+        )
+        merged_job_options = _merge_job_options(
+            cluster_cfg.job_options,
+            study_cfg.job_options if study_cfg else {},
+            extra_job_options or {},
+        )
+
         # Render the job script.
         template_name = f"{cluster_cfg.scheduler_type}.sh.j2"
         template = _jinja_env.get_template(template_name)
@@ -358,17 +370,9 @@ class SprintManager:
             sprint_dirname=sprint_dirname,
             job_name=f"rl-{sprint_id}",
             working_dir=sprints_base,
-            time_limit=(
-                f"{study_cfg.max_sprint_duration_hours}:00:00"
-                if study_cfg
-                else "8:00:00"
-            ),
+            time_limit=time_limit,
             environment=cluster_cfg.environment,
-            job_options=_merge_job_options(
-                cluster_cfg.job_options,
-                study_cfg.job_options if study_cfg else {},
-                extra_job_options or {},
-            ),
+            job_options=merged_job_options,
             claude_command=(
                 (study_cfg.claude_command if study_cfg else "")
                 or cluster_cfg.claude_command
@@ -430,14 +434,27 @@ class SprintManager:
             env=cluster_cfg.environment or None,
         )
 
-        # Update the sprint record.
+        # Update the sprint record, recording the resolved resources so
+        # the dashboard can show what the job was launched with.
         now = datetime.now(timezone.utc).isoformat()
+        meta_dict: dict[str, Any] = {}
+        existing_meta = sprint.get("metadata_json")
+        if existing_meta:
+            try:
+                parsed = json.loads(existing_meta)
+                if isinstance(parsed, dict):
+                    meta_dict = parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+        meta_dict["job_options"] = merged_job_options
+        meta_dict["time_limit"] = time_limit
         await queries.update_sprint(
             self.db,
             sprint_id,
             job_id=job_id,
             status=SprintStatus.SUBMITTED.value,
             started_at=now,
+            metadata_json=json.dumps(meta_dict),
         )
 
         logger.info(
