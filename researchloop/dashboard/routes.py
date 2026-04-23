@@ -801,7 +801,10 @@ def add_dashboard_routes(
         return FileResponse(
             path=str(pdf_path),
             media_type="application/pdf",
-            headers={"Content-Disposition": "inline"},
+            headers={
+                "Content-Disposition": "inline",
+                "Cache-Control": "no-cache, must-revalidate",
+            },
         )
 
     # ----------------------------------------------------------
