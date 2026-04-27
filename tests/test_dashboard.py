@@ -949,6 +949,42 @@ class TestLoopDetailPage:
             assert resp.status_code == 303
             assert "/login" in resp.headers["location"]
 
+    async def test_loop_detail_renders_inplace_refresh_wiring(self):
+        """Sprint rows on loop detail must carry the data-cell markers and
+        button hook used by the in-place refresh JS, so the idea/status/summary
+        cells get updated without a full page reload.
+        """
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            login_resp = client.post(
+                "/dashboard/login",
+                data={"password": "secret"},
+                follow_redirects=False,
+            )
+            cookie = login_resp.cookies.get(SESSION_COOKIE)
+
+            await queries.create_auto_loop(orch.db, "loop-rfr01", "test", 5)
+            sp = await queries.create_sprint(orch.db, "sp-rfr01", "test", idea=None)
+            await queries.update_sprint(
+                orch.db,
+                sp["id"],
+                status="running",
+                loop_id="loop-rfr01",
+            )
+
+            resp = client.get(
+                "/dashboard/loops/loop-rfr01",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            html = resp.text
+            assert 'id="row-sp-rfr01"' in html
+            assert 'data-cell="status"' in html
+            assert 'data-cell="idea"' in html
+            assert 'data-cell="summary"' in html
+            assert "refreshSprintRow('sp-rfr01', this)" in html
+            assert "function refreshSprintRow(" in html
+
 
 class TestLoopsPage:
     def test_loops_page_returns_200(self):
