@@ -1,6 +1,37 @@
 """Tests for runner components (template rendering, output parsing)."""
 
+import jinja2
+
 from researchloop.runner.claude import _parse_output, render_template
+
+
+def _render_job_template(name: str) -> str:
+    """Render slurm.sh.j2 / sge.sh.j2 with minimal variables for inspection."""
+    from pathlib import Path
+
+    import researchloop.sprints.manager as _m
+
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(
+            str(Path(_m.__file__).resolve().parent.parent / "runner" / "job_templates")
+        ),
+    )
+    return env.get_template(name).render(
+        sprint_id="sp-test",
+        study_name="study",
+        idea="test idea",
+        sprint_dirname="sp-test-dir",
+        job_name="rl-sp-test",
+        working_dir="/work",
+        time_limit="8:00:00",
+        environment={},
+        job_options={},
+        claude_command="claude --dangerously-skip-permissions",
+        orchestrator_url="http://orch",
+        webhook_token="tok",
+        red_team_max_rounds=3,
+        prompts=[],
+    )
 
 
 class TestParseOutput:
@@ -108,3 +139,27 @@ class TestRenderTemplate:
         assert "sp-001" in output
         assert "Found X" in output
         assert "sp-002" in output
+
+
+class TestJobScriptWatchdog:
+    """The heartbeat loop in slurm.sh.j2 / sge.sh.j2 should warn when the
+    active step's stream-json output stops growing — signature of the hung
+    pipeline class of bug.
+    """
+
+    def _assert_watchdog_present(self, script: str) -> None:
+        assert "STUCK_PIPE detected" in script
+        assert "stuck_threshold_secs=300" in script
+        # Watchdog must live inside the heartbeat loop, not in run_step.
+        assert "_heartbeat_loop()" in script
+        # mtime check uses both Linux + BSD stat fallbacks.
+        assert "stat -c %Y" in script
+        assert "stat -f %m" in script
+        # Once-per-stuck-episode flag, not log-every-heartbeat.
+        assert "stuck_warned" in script
+
+    def test_slurm_template_includes_watchdog(self):
+        self._assert_watchdog_present(_render_job_template("slurm.sh.j2"))
+
+    def test_sge_template_includes_watchdog(self):
+        self._assert_watchdog_present(_render_job_template("sge.sh.j2"))

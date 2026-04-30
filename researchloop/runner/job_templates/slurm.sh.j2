@@ -206,6 +206,11 @@ print(json.dumps({
 }
 
 _heartbeat_loop() {
+    # Watchdog: warn once if the active step's stream-json file goes silent
+    # for too long while heartbeats keep firing. Signature of a hung pipeline
+    # (claude exited but a leaked fd keeps tee|python3 blocked).
+    local stuck_warned=0
+    local stuck_threshold_secs=300
     while true; do
         sleep 60
         # Detect current step from log.
@@ -215,6 +220,23 @@ _heartbeat_loop() {
             last_step=$(grep -o '>>> Starting step: [a-z_]*' "$LOG_FILE" | tail -1 | sed 's/>>> Starting step: //' || true)
             if [ -n "$last_step" ]; then
                 step="running ($last_step)"
+            fi
+        fi
+        # STUCK_PIPE watchdog (detect-and-warn only).
+        local newest_jsonl
+        newest_jsonl=$(ls -t "$SPRINT_DIR/.researchloop"/*_output.jsonl 2>/dev/null | head -1)
+        if [ -n "$newest_jsonl" ] && [ -f "$newest_jsonl" ]; then
+            local mtime now age
+            mtime=$(stat -c %Y "$newest_jsonl" 2>/dev/null || stat -f %m "$newest_jsonl" 2>/dev/null || echo 0)
+            now=$(date +%s)
+            age=$((now - mtime))
+            if [ "$age" -gt "$stuck_threshold_secs" ]; then
+                if [ "$stuck_warned" -eq 0 ]; then
+                    echo "[$(date -u +%H:%M:%S)] WARNING: STUCK_PIPE detected: ${newest_jsonl##*/} unchanged for ${age}s while heartbeat still firing" >> "$LOG_FILE"
+                    stuck_warned=1
+                fi
+            else
+                stuck_warned=0
             fi
         fi
         send_heartbeat "$step"
