@@ -8,18 +8,19 @@ ResearchLoop is an automated research sprint platform for HPC clusters. It orche
 
 Two processes:
 
-1. **Orchestrator** (`researchloop serve`) — FastAPI server that manages studies/sprints in SQLite, submits jobs via SSH, receives webhooks from runners, stores artifacts. Also serves the web dashboard and handles Slack events.
+1. **Orchestrator** (`researchloop serve`) — FastAPI server that manages studies/sprints in SQLite, submits jobs via SSH, receives webhooks from runners, stores artifacts. Also serves the web dashboard and handles Slack events. Has no Claude CLI dependency.
 2. **Sprint Runner** — runs inside each SLURM/SGE job on HPC. Self-contained bash scripts chain `claude -p` calls through a pipeline (research → red-team → fix → report → summarize), then upload artifacts and send a completion webhook.
 
 Key design decisions:
 
-- All AI work runs on HPC, never on the orchestrator (except Slack conversations and auto-loop idea generation, which use `claude -p` locally with restricted tools)
-- `claude -p --output-format stream-json` for sprint steps (enables live progress), `--output-format json` for conversations
+- All AI work runs on HPC; the orchestrator never invokes `claude`
+- `claude -p --output-format stream-json` for sprint steps (enables live progress)
 - SSH to HPC login nodes for sbatch/squeue/scancel/qsub/qdel
 - Job completion via per-sprint webhook tokens (runner → orchestrator), SSH polling as fallback
 - SQLite (aiosqlite, WAL mode) for metadata, with a `settings` table for persistent config (signing key, password hash)
 - Jinja2 templates for all prompts and job scripts — prompts are pre-rendered by the orchestrator and embedded as base64 in the job script
 - Auto-loop sprints generate their own ideas on the cluster (where Claude is authenticated) rather than on the orchestrator
+- Slack integration is notification + structured slash-style commands only (`sprint run`, `sprint list`, `loop start`, `help`); free-form Q&A was removed
 - Context hierarchy: global → cluster → study (inline text + file paths at each level)
 
 ## Tech stack
@@ -51,11 +52,10 @@ researchloop/
     models.py           — SprintStatus enum, Sprint/Study/AutoLoop dataclasses, generate_sprint_id(), format_sprint_dirname()
     orchestrator.py     — Orchestrator class + create_app() FastAPI factory (API + Slack + dashboard)
     credentials.py      — CLI credential storage (~/.config/researchloop/credentials.json) for remote orchestrator auth
-    auth.py             — check_claude_auth_async() helper for verifying Claude CLI auth status
   db/
     __init__.py
     database.py         — async SQLite wrapper (WAL mode, auto-migrations, fetch_one/fetch_all/execute)
-    migrations.py       — CREATE TABLE statements (7 tables: studies, sprints, auto_loops, artifacts, slack_sessions, events, settings) + indexes + incremental column migrations
+    migrations.py       — CREATE TABLE statements (7 tables: studies, sprints, tweaks, auto_loops, artifacts, events, settings) + indexes + incremental column migrations
     queries.py          — async CRUD functions (all take Database as first arg, return dicts)
   clusters/
     __init__.py
@@ -95,7 +95,6 @@ researchloop/
     base.py             — BaseNotifier ABC (notify_sprint_started/completed/failed)
     ntfy.py             — NtfyNotifier (ntfy.sh push notifications)
     slack.py            — SlackNotifier (chat:write + files:write) + verify_slack_signature()
-    conversation.py     — ConversationManager (Slack threads → Claude sessions via --resume, action execution, markdown→Slack conversion)
     router.py           — NotificationRouter (fan-out to all configured notifiers)
   dashboard/
     __init__.py
@@ -116,7 +115,7 @@ researchloop/
 
 ## Database
 
-SQLite with 8 tables: `studies`, `sprints`, `tweaks`, `auto_loops`, `artifacts`, `slack_sessions`, `events`, `settings`. Schema in `db/migrations.py`. All queries in `db/queries.py` use parameterized SQL and return plain dicts.
+SQLite with 7 tables: `studies`, `sprints`, `tweaks`, `auto_loops`, `artifacts`, `events`, `settings`. Schema in `db/migrations.py`. All queries in `db/queries.py` use parameterized SQL and return plain dicts. (An older `slack_sessions` table is dropped by the migration if present.)
 
 Key columns:
 - `sprints.webhook_token` — per-sprint token for webhook auth (generated at creation)
@@ -148,7 +147,7 @@ Key columns:
 - CSRF protection: HMAC-based tokens derived from session token + signing secret, checked on all mutating dashboard POST routes
 - Dashboard refresh: pulls live status from cluster via SSH (reads logs, progress.md, output.log, report.md, findings.md, summary.txt, idea.txt, checks for PDF)
 - Slack events: deduplication via event_id set, signature verification, background task processing (return 200 immediately), bot message filtering
-- Slack conversation: thread → session mapping in DB, context building with study/sprint info, action execution via [ACTION: ...] tags
+- Slack commands: `sprint run`, `sprint list`, `loop start`, `help` (no free-form chat — orchestrator does not run Claude locally)
 - Auto-loop: sprint idea=None → job script generates idea on cluster → idea.txt read back via SSH/webhook
 - CLI auth: `researchloop connect` gets a bearer token via /api/auth, stored in ~/.config/researchloop/credentials.json with 600 permissions
 - CLI auto-reauth: on 401, prompts for password, gets new token, saves it
@@ -156,7 +155,7 @@ Key columns:
 
 ## Testing
 
-339 unit tests covering: models, config parsing, database operations, all query functions, SLURM scheduler (mock SSH), SGE scheduler (mock SSH), local scheduler (real subprocesses), study/sprint managers, auto-loop controller (with mock claude), notification router, Slack notifier + signature verification + conversation manager + Slack events API, FastAPI API endpoints (TestClient), dashboard routes + auth + setup + CSRF, CLI commands (CliRunner), runner output parsing, and template rendering.
+Unit tests cover: models, config parsing, database operations, all query functions, SLURM scheduler (mock SSH), SGE scheduler (mock SSH), local scheduler (real subprocesses), study/sprint managers, auto-loop controller, notification router, Slack notifier + signature verification + Slack events API, FastAPI API endpoints (TestClient), dashboard routes + auth + setup + CSRF, CLI commands (CliRunner), runner output parsing, and template rendering.
 
 Integration tests (in tests/integration/) use a Docker SLURM container to test real job submission.
 

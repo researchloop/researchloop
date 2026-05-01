@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import secrets
-import shutil
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING
-
-import jinja2
 
 if TYPE_CHECKING:
     from researchloop.core.config import Config
@@ -19,13 +14,6 @@ if TYPE_CHECKING:
     from researchloop.sprints.manager import SprintManager
 
 from researchloop.db import queries
-
-_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "runner" / "templates"
-_jinja_env = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(str(_TEMPLATES_DIR)),
-    keep_trailing_newline=True,
-    undefined=jinja2.StrictUndefined,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +26,9 @@ def _generate_loop_id() -> str:
 class AutoLoopController:
     """Controls automated multi-sprint research loops.
 
-    On sprint completion the controller generates the next research
-    idea (via ``claude -p`` or a heuristic fallback) and starts the
-    next sprint automatically.
+    The cluster-side runner generates each next research idea via the
+    embedded idea_generator.md.j2 prompt; this controller just chains
+    sprints together as each one completes.
     """
 
     def __init__(
@@ -285,115 +273,6 @@ class AutoLoopController:
             total,
             sprint.id,
         )
-
-    # ------------------------------------------------------------------
-    # Idea generation
-    # ------------------------------------------------------------------
-
-    async def _generate_next_idea(
-        self,
-        loop_id: str,
-        study_name: str,
-        sprint_number: int,
-        total: int,
-    ) -> str:
-        """Generate the next research idea for the auto-loop.
-
-        Renders the ``idea_generator.md.j2`` template with previous
-        sprint summaries and the study's CLAUDE.md context, then
-        invokes ``claude -p`` locally.  Falls back to a simple
-        heuristic if the CLI is unavailable.
-        """
-        # Collect summaries of completed sprints for this study.
-        sprints = await queries.list_sprints(
-            self.db,
-            study_name=study_name,
-            limit=total,
-        )
-        previous: list[dict[str, str]] = []
-        for sp in sprints:
-            summary = sp.get("summary") or ""
-            if summary:
-                previous.append(
-                    {"id": sp["id"], "summary": summary},
-                )
-
-        # Read the study's CLAUDE.md context if available.
-        study_context = ""
-        study_row = await queries.get_study(self.db, study_name)
-        if study_row and study_row.get("claude_md_path"):
-            md_path = Path(study_row["claude_md_path"])
-            if md_path.is_file():
-                try:
-                    study_context = md_path.read_text(
-                        encoding="utf-8",
-                    )
-                except OSError:
-                    logger.warning(
-                        "Could not read CLAUDE.md at %s",
-                        md_path,
-                    )
-
-        # Render the prompt template.
-        template = _jinja_env.get_template(
-            "idea_generator.md.j2",
-        )
-        prompt = template.render(
-            study_context=study_context or "(none)",
-            previous_sprints=previous,
-        )
-
-        # Try running claude -p locally.
-        fallback = (
-            f"Continue exploring based on previous findings"
-            f" (auto-loop {loop_id}"
-            f" sprint {sprint_number}/{total})"
-        )
-
-        if not shutil.which("claude"):
-            logger.info(
-                "claude CLI not found; using fallback idea",
-            )
-            return fallback
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "claude",
-                "-p",
-                prompt,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=120,
-            )
-
-            if proc.returncode != 0:
-                logger.warning(
-                    "claude -p failed (rc=%d): %s",
-                    proc.returncode,
-                    stderr.decode().strip(),
-                )
-                return fallback
-
-            idea = stdout.decode().strip()
-            if not idea:
-                logger.warning("claude -p returned empty output")
-                return fallback
-
-            logger.info(
-                "Auto-loop %s: generated idea via claude CLI",
-                loop_id,
-            )
-            return idea
-
-        except (asyncio.TimeoutError, OSError) as exc:
-            logger.warning(
-                "claude -p error: %s; using fallback idea",
-                exc,
-            )
-            return fallback
 
     # ------------------------------------------------------------------
     # Stop

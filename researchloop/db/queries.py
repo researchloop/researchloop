@@ -239,10 +239,9 @@ async def update_sprint(db: Database, id: str, **kwargs: Any) -> dict[str, Any] 
 
 
 async def delete_sprint(db: Database, id: str) -> None:
-    """Delete a sprint and its related artifacts, events, and sessions."""
+    """Delete a sprint and its related artifacts and events."""
     await db.execute("DELETE FROM artifacts WHERE sprint_id = ?", [id])
     await db.execute("DELETE FROM events WHERE sprint_id = ?", [id])
-    await db.execute("DELETE FROM slack_sessions WHERE sprint_id = ?", [id])
     await db.execute("DELETE FROM sprints WHERE id = ?", [id])
 
 

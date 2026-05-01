@@ -63,16 +63,6 @@ CREATE TABLE IF NOT EXISTS artifacts (
     FOREIGN KEY (sprint_id) REFERENCES sprints(id)
 );
 
-CREATE TABLE IF NOT EXISTS slack_sessions (
-    thread_ts TEXT PRIMARY KEY,
-    sprint_id TEXT,
-    session_id TEXT,  -- claude --resume session ID
-    study_name TEXT,
-    messages_json TEXT,  -- JSON array of {role, text}
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (sprint_id) REFERENCES sprints(id)
-);
-
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sprint_id TEXT,
@@ -134,10 +124,14 @@ async def run_migrations(db: Database) -> None:
     await _add_column_if_missing(db, "sprints", "webhook_token", "TEXT")
     await _add_column_if_missing(db, "sprints", "loop_id", "TEXT")
     await _add_column_if_missing(db, "auto_loops", "metadata_json", "TEXT")
-    await _add_column_if_missing(db, "slack_sessions", "messages_json", "TEXT")
     await _add_column_if_missing(db, "studies", "source", "TEXT")
     await _add_column_if_missing(db, "studies", "yaml_config_json", "TEXT")
     await db._conn.execute("UPDATE studies SET source = 'yaml' WHERE source IS NULL")
+
+    # Drop the slack_sessions table if it exists (Slack free-form chat
+    # was removed). This is idempotent — the DROP only does work the
+    # first time, then becomes a no-op on subsequent startups.
+    await db._conn.execute("DROP TABLE IF EXISTS slack_sessions")
 
     # Make idea column nullable — already applied, skip on future runs.
     # The migration checks if the column is still NOT NULL before acting.

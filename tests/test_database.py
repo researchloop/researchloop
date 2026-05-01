@@ -27,10 +27,11 @@ class TestDatabase:
             "sprints",
             "auto_loops",
             "artifacts",
-            "slack_sessions",
             "events",
         }
         assert expected.issubset(table_names)
+        # slack_sessions should be dropped by the migration if present.
+        assert "slack_sessions" not in table_names
 
     async def test_indexes_created(self, db):
         rows = await db.fetch_all(

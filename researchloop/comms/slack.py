@@ -26,12 +26,10 @@ class SlackNotifier(BaseNotifier):
         bot_token: str,
         channel_id: str | None = None,
         dashboard_url: str | None = None,
-        conversation_manager: Any = None,
     ) -> None:
         self.bot_token = bot_token
         self.channel_id = channel_id
         self.dashboard_url = dashboard_url
-        self._cm = conversation_manager
 
     async def _post_message(
         self,
@@ -121,10 +119,7 @@ class SlackNotifier(BaseNotifier):
             f"*Study:* {study_name}\n"
             f"*Idea:* {idea_trunc}"
         )
-        resp = await self._post_message(msg)
-        ts = resp.get("ts", "")
-        if ts and self._cm:
-            await self._cm.store_bot_message(ts, msg)
+        await self._post_message(msg)
 
     async def notify_sprint_completed(
         self,
@@ -140,11 +135,7 @@ class SlackNotifier(BaseNotifier):
             f"*Study:* {study_name}\n"
             f"*Summary:* {summary_trunc}"
         )
-        resp = await self._post_message(msg)
-        # Store the notification for thread context.
-        ts = resp.get("ts", "")
-        if ts and self._cm:
-            await self._cm.store_bot_message(ts, msg)
+        await self._post_message(msg)
         if pdf_path:
             await self._upload_file(
                 pdf_path,
@@ -162,10 +153,7 @@ class SlackNotifier(BaseNotifier):
         msg = (
             f":x: Sprint *{link}* failed\n*Study:* {study_name}\n*Error:* {error[:500]}"
         )
-        resp = await self._post_message(msg)
-        ts = resp.get("ts", "")
-        if ts and self._cm:
-            await self._cm.store_bot_message(ts, msg)
+        await self._post_message(msg)
 
 
 def verify_slack_signature(

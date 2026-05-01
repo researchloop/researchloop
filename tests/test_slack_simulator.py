@@ -89,13 +89,6 @@ async def _make_orchestrator(
         notification_router=orch.notification_router,
     )
 
-    # Conversation manager.
-    from researchloop.comms.conversation import ConversationManager
-
-    orch.conversation_manager = ConversationManager(
-        db, sprint_manager=orch.sprint_manager
-    )
-
     # Prevent lifespan from running start/stop.
     orch.start = AsyncMock()  # type: ignore[method-assign]
     orch.stop = AsyncMock()  # type: ignore[method-assign]
@@ -285,24 +278,6 @@ class TestSprintRunCommand:
         # The important thing is it doesn't crash.
 
 
-class TestAuthStatusCommand:
-    async def test_auth_status(self, slack_sim):
-        """'auth status' should trigger a response about Claude auth."""
-        sim, _db = slack_sim
-
-        with patch(
-            "researchloop.core.auth.check_claude_auth_async",
-            new_callable=AsyncMock,
-            return_value=(False, "Claude CLI not found"),
-        ):
-            resp = await sim.send_message("auth status")
-
-        assert resp.messages
-        # Should contain info about auth status -- either authenticated
-        # or not (we mocked it as not found).
-        assert "authenticated" in resp.text.lower() or "not" in resp.text.lower()
-
-
 # ------------------------------------------------------------------
 # Authorization tests
 # ------------------------------------------------------------------
@@ -391,39 +366,18 @@ class TestBotMessageIgnored:
 
 
 # ------------------------------------------------------------------
-# Conversational (free-form) messages
+# Unrecognized messages
 # ------------------------------------------------------------------
 
 
-class TestConversationalMessages:
-    async def test_freeform_message_calls_claude(self, slack_sim):
-        """Non-command text should be passed to ConversationManager."""
+class TestUnrecognizedMessages:
+    async def test_unknown_text_gets_help_hint(self, slack_sim):
+        """Non-command text gets a 'try help' fallback (no AI chat anymore)."""
         sim, _db = slack_sim
-
-        with patch(
-            "researchloop.comms.conversation.ConversationManager.handle_message",
-            new_callable=AsyncMock,
-            return_value="I can help with your research!",
-        ):
-            resp = await sim.send_message("Tell me about quantum computing")
-
-        assert resp.messages
-        assert "research" in resp.text.lower()
-
-    async def test_freeform_message_error_handled(self, slack_sim):
-        """When ConversationManager raises, the bot sends an error reply."""
-        sim, _db = slack_sim
-
-        with patch(
-            "researchloop.comms.conversation.ConversationManager.handle_message",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("Claude is broken"),
-        ):
-            resp = await sim.send_message("What should I research next?")
-
+        resp = await sim.send_message("Tell me about quantum computing")
         assert resp.messages
         text = resp.text.lower()
-        assert "something went wrong" in text or "help" in text
+        assert "didn't understand" in text or "help" in text
 
 
 # ------------------------------------------------------------------

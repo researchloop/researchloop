@@ -1,4 +1,4 @@
-"""Tests for Slack integration -- notifier, signature, and conversation."""
+"""Tests for Slack integration -- notifier and signature verification."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import hmac
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from researchloop.comms.conversation import ConversationManager
 from researchloop.comms.slack import (
     SlackNotifier,
     verify_slack_signature,
@@ -131,50 +130,3 @@ class TestVerifySlackSignature:
         sig = self._make_signature(secret, ts, body)
 
         assert not verify_slack_signature(secret, ts, body, sig)
-
-
-# ------------------------------------------------------------------
-# ConversationManager
-# ------------------------------------------------------------------
-
-
-class TestConversationManager:
-    async def test_create_and_get_session(self, db):
-        """Create a session and retrieve it by thread_ts."""
-        cm = ConversationManager(db)
-
-        result = await cm.get_session("1234.5678")
-        assert result is None
-
-        await cm.create_session(
-            thread_ts="1234.5678",
-            study_name="test-study",
-            session_id="sess-abc",
-        )
-
-        result = await cm.get_session("1234.5678")
-        assert result is not None
-        assert result["thread_ts"] == "1234.5678"
-        assert result["study_name"] == "test-study"
-        assert result["session_id"] == "sess-abc"
-
-    async def test_update_session_id(self, db):
-        """Update the session_id for an existing thread."""
-        cm = ConversationManager(db)
-
-        await cm.create_session(
-            thread_ts="9999.0000",
-            session_id="old-id",
-        )
-
-        await cm.update_session_id("9999.0000", "new-id")
-
-        result = await cm.get_session("9999.0000")
-        assert result is not None
-        assert result["session_id"] == "new-id"
-
-    async def test_get_session_not_found(self, db):
-        """get_session returns None for unknown thread."""
-        cm = ConversationManager(db)
-        result = await cm.get_session("nonexistent")
-        assert result is None

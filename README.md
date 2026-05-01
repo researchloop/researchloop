@@ -91,11 +91,13 @@ Browse to `/dashboard/` to see all your studies, sprints, and loops. Submit new 
 
 ### Slack bot
 
-Chat with the bot to start sprints, check status, or discuss research ideas. The bot maintains conversation context across a thread, so you can have a back-and-forth about what to try next.
+Get sprint notifications in your Slack channel and run commands from a thread:
 
 ```
-You: What should I investigate next based on the results from sp-a3f7b2?
-Bot: Based on the findings, I'd suggest... [ACTION: sprint_run {"study": "my-project", "idea": "..."}]
+sprint run my-project "investigate feature X under condition Y"
+sprint list
+loop start my-project 5
+help
 ```
 
 See the [Slack setup guide](https://researchloop.github.io/researchloop/slack/) for configuration.
@@ -158,7 +160,7 @@ Full docs at **[researchloop.github.io/researchloop](https://researchloop.github
 - [Configuration reference](https://researchloop.github.io/researchloop/configuration/) -- all TOML options and environment variables
 - [Deployment guide](https://researchloop.github.io/researchloop/deployment/) -- Docker, Fly.io, SSH key setup
 - [Dashboard guide](https://researchloop.github.io/researchloop/dashboard/) -- web UI features and authentication
-- [Slack integration](https://researchloop.github.io/researchloop/slack/) -- setup, commands, conversational mode
+- [Slack integration](https://researchloop.github.io/researchloop/slack/) -- setup, commands, notifications
 - [CLI reference](https://researchloop.github.io/researchloop/cli/) -- all commands with examples
 - [Security](https://researchloop.github.io/researchloop/security/) -- authentication, CSRF, webhook tokens
 - [Development](https://researchloop.github.io/researchloop/development/) -- contributing, testing, architecture

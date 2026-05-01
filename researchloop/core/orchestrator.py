@@ -15,7 +15,6 @@ from fastapi.responses import JSONResponse
 
 from researchloop.clusters.monitor import JobMonitor
 from researchloop.clusters.ssh import SSHManager
-from researchloop.comms.conversation import ConversationManager
 from researchloop.comms.ntfy import NtfyNotifier
 from researchloop.comms.router import NotificationRouter
 from researchloop.comms.slack import (
@@ -51,7 +50,6 @@ class Orchestrator:
         self.auto_loop: AutoLoopController | None = None
         self.notification_router: NotificationRouter | None = None
         self.job_monitor: JobMonitor | None = None
-        self.conversation_manager: ConversationManager | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -107,18 +105,6 @@ class Orchestrator:
             study_manager=self.study_manager,
             notification_router=self.notification_router,
         )
-
-        # 6b. Conversation manager
-        self.conversation_manager = ConversationManager(
-            self.db, sprint_manager=self.sprint_manager
-        )
-
-        # Wire conversation manager to Slack notifier
-        # so notifications store thread context.
-        if self.config.slack and self.config.slack.bot_token:
-            for n in self.notification_router._notifiers:
-                if isinstance(n, SlackNotifier):
-                    n._cm = self.conversation_manager
 
         # 7. Auto-loop controller
         self.auto_loop = AutoLoopController(
@@ -790,33 +776,6 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
             return
         text_lower = text.lower().strip()
 
-        # Handle "auth status" / "login" commands
-        if any(kw in text_lower for kw in ("auth status", "auth check", "login")):
-            if slack_cfg and slack_cfg.bot_token:
-                from researchloop.core.auth import (
-                    check_claude_auth_async,
-                )
-
-                ok, detail = await check_claude_auth_async()
-                notifier = SlackNotifier(
-                    bot_token=slack_cfg.bot_token,
-                    channel_id=channel,
-                )
-                if ok:
-                    msg = (
-                        ":white_check_mark: Claude is"
-                        f" authenticated on this server ({detail})."
-                    )
-                else:
-                    msg = (
-                        ":information_source: Claude is not"
-                        " authenticated on this server"
-                        " (not required — AI runs on the"
-                        " HPC cluster)."
-                    )
-                await notifier._post_message(msg, thread_ts=thread_ts)
-            return
-
         # Handle "help" command.
         if text_lower == "help":
             if slack_cfg and slack_cfg.bot_token:
@@ -831,7 +790,6 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                     "• `sprint list` — list recent sprints\n"
                     "• `loop start <study> <count>`"
                     " — start an auto-loop\n"
-                    "• `auth status` — check Claude auth\n"
                     "• `help` — show this message",
                     thread_ts=thread_ts,
                 )
@@ -894,29 +852,16 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                     )
                 return
 
-        # Free-form chat — pass to Claude via ConversationManager.
-        cm = orchestrator.conversation_manager
-        if cm is not None and slack_cfg and slack_cfg.bot_token:
+        # Unrecognized message — point user at the help command.
+        if slack_cfg and slack_cfg.bot_token:
             notifier = SlackNotifier(
                 bot_token=slack_cfg.bot_token,
                 channel_id=channel,
             )
-
-            try:
-                response_text = await cm.handle_message(
-                    thread_ts=thread_ts,
-                    user_text=text,
-                    channel=channel,
-                    bot_token=slack_cfg.bot_token if slack_cfg else None,
-                )
-                await notifier._post_message(response_text, thread_ts=thread_ts)
-            except Exception as exc:
-                logger.exception("Chat handler failed: %s", exc)
-                await notifier._post_message(
-                    "Sorry, something went wrong. Try `help` for available commands.",
-                    thread_ts=thread_ts,
-                )
-
+            await notifier._post_message(
+                "Sorry, I didn't understand that. Try `help` for available commands.",
+                thread_ts=thread_ts,
+            )
         return
 
     # -- Dashboard HTML routes -----------------------------------------

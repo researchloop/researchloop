@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from researchloop.core.models import Sprint, SprintStatus
 from researchloop.db import queries
@@ -73,9 +73,7 @@ class TestOnSprintCompleteIncrement:
             status="running",
         )
 
-        with patch("researchloop.sprints.auto_loop.shutil") as mock_shutil:
-            mock_shutil.which.return_value = None
-            await ctrl.on_sprint_complete("sp-first")
+        await ctrl.on_sprint_complete("sp-first")
 
         loop = await queries.get_auto_loop(
             db_with_study,
@@ -372,111 +370,6 @@ class TestStopCancelsCurrentSprint:
         assert loop is not None
         assert loop["status"] == "stopped"
         assert loop["stopped_at"] is not None
-
-
-# ------------------------------------------------------------------
-# _generate_next_idea
-# ------------------------------------------------------------------
-
-
-class TestGenerateNextIdea:
-    """The idea generator falls back gracefully."""
-
-    async def test_fallback_when_no_claude(
-        self,
-        db_with_study,
-        sample_config,
-    ):
-        ctrl = _make_controller(db_with_study, sample_config)
-
-        with patch("researchloop.sprints.auto_loop.shutil") as mock_shutil:
-            mock_shutil.which.return_value = None
-            idea = await ctrl._generate_next_idea(
-                loop_id="loop-eee",
-                study_name="test-study",
-                sprint_number=2,
-                total=4,
-            )
-
-        assert "auto-loop loop-eee" in idea
-        assert "sprint 2/4" in idea
-
-    async def test_uses_claude_output(
-        self,
-        db_with_study,
-        sample_config,
-    ):
-        ctrl = _make_controller(db_with_study, sample_config)
-
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (
-            b"Investigate feature absorption",
-            b"",
-        )
-        mock_proc.returncode = 0
-
-        async def _wait_for(coro, **kw):
-            return await coro
-
-        with (
-            patch("researchloop.sprints.auto_loop.shutil") as mock_shutil,
-            patch(
-                "researchloop.sprints.auto_loop.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
-            ),
-            patch(
-                "researchloop.sprints.auto_loop.asyncio.wait_for",
-                side_effect=_wait_for,
-            ),
-        ):
-            mock_shutil.which.return_value = "/usr/bin/claude"
-            idea = await ctrl._generate_next_idea(
-                loop_id="loop-fff",
-                study_name="test-study",
-                sprint_number=3,
-                total=5,
-            )
-
-        assert idea == "Investigate feature absorption"
-
-    async def test_fallback_on_claude_failure(
-        self,
-        db_with_study,
-        sample_config,
-    ):
-        ctrl = _make_controller(db_with_study, sample_config)
-
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (
-            b"",
-            b"error occurred",
-        )
-        mock_proc.returncode = 1
-
-        async def _wait_for(coro, **kw):
-            return await coro
-
-        with (
-            patch("researchloop.sprints.auto_loop.shutil") as mock_shutil,
-            patch(
-                "researchloop.sprints.auto_loop.asyncio.create_subprocess_exec",
-                return_value=mock_proc,
-            ),
-            patch(
-                "researchloop.sprints.auto_loop.asyncio.wait_for",
-                side_effect=_wait_for,
-            ),
-        ):
-            mock_shutil.which.return_value = "/usr/bin/claude"
-            idea = await ctrl._generate_next_idea(
-                loop_id="loop-ggg",
-                study_name="test-study",
-                sprint_number=2,
-                total=3,
-            )
-
-        assert "auto-loop loop-ggg" in idea
-        assert "sprint 2/3" in idea
 
 
 # ------------------------------------------------------------------
