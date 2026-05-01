@@ -7,7 +7,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-<img width="720" height="456" alt="mmlu-combined" src="https://github.com/user-attachments/assets/cf48ed67-2a41-474d-81ab-2a86cd811af9" />
+<img width="720" height="456" alt="mmlu-combined" src="https://github.com/user-attachments/assets/6d1d495f-1078-4f81-9f8a-bb1792ea3905" />
 
 ---
 
