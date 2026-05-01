@@ -2,6 +2,10 @@
 
 **Automated AI research sprints on HPC clusters.**
 
+<video autoplay muted loop playsinline width="720" style="max-width:100%;height:auto;border-radius:6px">
+  <source src="assets/mmlu-combined.mp4" type="video/mp4">
+</video>
+
 ---
 
 ResearchLoop automates multi-step AI research pipelines on SLURM and SGE clusters. You describe a research idea, and ResearchLoop submits it to your HPC cluster where [Claude Code](https://docs.anthropic.com/en/docs/claude-code) executes a full research pipeline -- coding, red-teaming, fixing, reporting -- inside a single job. Results are reported back via webhooks, Slack, or push notifications, and you can monitor everything from a web dashboard or the CLI.
