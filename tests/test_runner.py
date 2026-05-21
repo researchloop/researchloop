@@ -102,6 +102,24 @@ class TestRenderTemplate:
         )
         assert "progress.md" in output
 
+    def test_research_template_forbids_backgrounding(self):
+        """claude -p is one-shot — backgrounded subprocesses get orphaned and
+        killed by the runner's pipeline-cleanup watchdog. The template must
+        tell claude not to use run_in_background or shell-level detach."""
+        output = render_template(
+            "research_sprint.md.j2",
+            study_context="Study context",
+            idea="test idea",
+            sprint_dir="/tmp/sprint",
+        )
+        assert "run_in_background" in output
+        assert "nohup" in output
+        assert "one-shot" in output
+
+    def test_fix_template_forbids_backgrounding(self):
+        output = render_template("fix_issues.md.j2", round_number=1)
+        assert "run_in_background" in output
+
     def test_red_team_template(self):
         output = render_template(
             "red_team.md.j2",

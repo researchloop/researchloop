@@ -23,6 +23,17 @@ python train.py 2>&1 | tee -a output.log
 
 This lets the team monitor script output remotely. Always use `tee -a` (append mode) so all runs accumulate in the same log file. Do this for every script execution, training run, or evaluation.
 
+## Long-running commands — run synchronously, NEVER in the background
+This sprint runs as a single one-shot `claude -p` invocation. There is no notification mechanism, no resumed turn, and no way to "wait and be notified". The moment you end your turn, the session is over and the sprint runner kills any detached subprocesses (training, evaluation, anything you started).
+
+Rules:
+- NEVER pass `run_in_background: true` on a Bash tool call. Always run training and evaluation in the foreground.
+- NEVER use `nohup`, `disown`, `setsid`, `&`, `&>`, or any other shell-level backgrounding for work you care about. The orphan will be killed.
+- If a single Bash call needs to run longer than its default timeout, raise the per-call `timeout` parameter instead of backgrounding it.
+- The `PushNotification`, `Monitor`, `Cron*`, `Task`, `AskUserQuestion`, `EnterPlanMode`, and `EnterWorktree` tools are NOT available in this one-shot mode. Ignore them if they appear in your tool list.
+
+Plan training as a series of synchronous foreground commands. Wait for each to finish before ending your turn.
+
 ## Progress Log
 Maintain a file called `progress.md` in the sprint directory. Update it regularly as you work — it's how the team monitors your progress remotely. Keep it concise and current:
 
