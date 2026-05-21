@@ -54,6 +54,7 @@ log() {
 
 # --- Helper: run claude and extract session ID ---
 SESSION_ID=""
+ACTIVE_STEP_FILE="$SPRINT_DIR/.researchloop/active_step"
 run_step() {
     local prompt_file="$1"
     local step_name="$2"
@@ -65,12 +66,33 @@ run_step() {
         cmd+=(--resume "$SESSION_ID")
     fi
 
+    local output_file="$SPRINT_DIR/.researchloop/${step_name}_output.jsonl"
+    local pgid_file="$SPRINT_DIR/.researchloop/${step_name}_pgid"
+    local result_sentinel="$SPRINT_DIR/.researchloop/${step_name}_result_seen"
+    # Reset per-step watchdog state and announce the active step to the
+    # heartbeat loop.
+    rm -f "$pgid_file" "$result_sentinel"
+    echo "$step_name" > "$ACTIVE_STEP_FILE"
+
     # Run claude with streaming JSON output.
     # Each line is a JSON event — we pipe through a filter that:
     # 1. Logs human-readable summaries of what Claude is doing
     # 2. Saves the full stream for post-processing
-    local output_file="$SPRINT_DIR/.researchloop/${step_name}_output.jsonl"
-    "${cmd[@]}" 2> >(tee -a "$LOG_FILE" >&2) | tee "$output_file" | python3 -u -c "
+    # 3. Writes ${step}_result_seen when claude emits its terminal `result`
+    #    event, so the heartbeat watchdog can detect "done but pipeline open"
+    #
+    # claude is launched under `setsid` so it (and any subprocesses spawned
+    # by Bash tool calls) share a dedicated process group. If a Bash-tool
+    # subprocess later leaks (e.g. hung network call) and keeps the
+    # tee|python3 pipeline open after claude has emitted result, the
+    # heartbeat watchdog can SIGTERM the whole group cleanly via the pgid.
+    (
+        setsid "${cmd[@]}" 2> >(tee -a "$LOG_FILE" >&2) &
+        claude_pid=$!
+        # setsid makes the child a session/group leader; pgid == pid.
+        echo "$claude_pid" > "$pgid_file"
+        wait "$claude_pid"
+    ) | tee "$output_file" | python3 -u -c "
 import sys, json, os, time
 log = open('$LOG_FILE', 'a', buffering=1)
 last_tool_time = 0
@@ -112,16 +134,31 @@ for line in sys.stdin:
         sid = evt.get('session_id', '')
         if sid:
             open('$SPRINT_DIR/.researchloop/session_id', 'w').write(sid)
+        # Mark claude's terminal result so the heartbeat watchdog can kill
+        # any leaked subprocesses keeping the pipeline open past this point.
+        try:
+            open('$result_sentinel', 'w').close()
+        except OSError:
+            pass
         result = evt.get('result', '') or ''
         log.write(f'  Done ({tool_count} tool calls, {len(result)} chars output)\n')
         log.flush()
 log.close()
 " || {
         local rc=$?
-        log "ERROR: Claude failed on step $step_name (exit $rc)"
-        tail -20 "$output_file" >> "$LOG_FILE" 2>/dev/null
-        return 1
+        # Treat as failure only if claude never emitted its result event. If
+        # the sentinel exists, the work is done — the nonzero exit is just
+        # the watchdog cleaning up a leaked Bash-tool subprocess.
+        if [ ! -f "$result_sentinel" ]; then
+            log "ERROR: Claude failed on step $step_name (exit $rc)"
+            tail -20 "$output_file" >> "$LOG_FILE" 2>/dev/null
+            rm -f "$ACTIVE_STEP_FILE"
+            return 1
+        fi
+        log "NOTE: $step_name pipeline closed via watchdog after result event (exit $rc); treating step as complete"
     }
+
+    rm -f "$ACTIVE_STEP_FILE"
 
     if [ -f "$SPRINT_DIR/.researchloop/session_id" ]; then
         SESSION_ID=$(cat "$SPRINT_DIR/.researchloop/session_id")
@@ -204,22 +241,36 @@ print(json.dumps({
 }
 
 _heartbeat_loop() {
-    # Watchdog: warn once if the active step's stream-json file goes silent
-    # for too long while heartbeats keep firing. Signature of a hung pipeline
-    # (claude exited but a leaked fd keeps tee|python3 blocked).
+    # Watchdog: detect and recover from hung pipelines.
+    #
+    # STUCK_PIPE warn: the active step's stream-json file goes silent for
+    # 5+ minutes while heartbeats keep firing. Signature of claude having
+    # exited but a leaked Bash-tool subprocess holding the pipeline's
+    # stdout fd open.
+    #
+    # Hung-after-result kill: claude emits a terminal `result` event when
+    # its work is done, which the stream filter records as a sentinel file.
+    # If the bash pipeline does not close within result_grace_secs after
+    # that, SIGTERM the entire claude process group via its pgid so the
+    # leaked subprocesses die and run_step can return. Escalate to SIGKILL
+    # if the group ignores SIGTERM.
     local stuck_warned=0
     local stuck_threshold_secs=300
+    local result_grace_secs=60
+    local kill_escalate_secs=15
+    local last_killed_pgid=""
     while true; do
         sleep 60
-        local step="running"
-        if [ -f "$LOG_FILE" ]; then
-            local last_step
-            last_step=$(grep -o '>>> Starting step: [a-z_]*' "$LOG_FILE" | tail -1 | sed 's/>>> Starting step: //' || true)
-            if [ -n "$last_step" ]; then
-                step="running ($last_step)"
-            fi
+        # Detect current step from the active_step file written by run_step.
+        local active_step=""
+        if [ -f "$SPRINT_DIR/.researchloop/active_step" ]; then
+            active_step=$(cat "$SPRINT_DIR/.researchloop/active_step" 2>/dev/null || true)
         fi
-        # STUCK_PIPE watchdog (detect-and-warn only).
+        local step="running"
+        if [ -n "$active_step" ]; then
+            step="running ($active_step)"
+        fi
+        # STUCK_PIPE watchdog (detect-and-warn).
         local newest_jsonl
         newest_jsonl=$(ls -t "$SPRINT_DIR/.researchloop"/*_output.jsonl 2>/dev/null | head -1)
         if [ -n "$newest_jsonl" ] && [ -f "$newest_jsonl" ]; then
@@ -234,6 +285,26 @@ _heartbeat_loop() {
                 fi
             else
                 stuck_warned=0
+            fi
+        fi
+        # Hung-after-result recovery: kill the claude pgid if the result
+        # sentinel is older than the grace period.
+        if [ -n "$active_step" ]; then
+            local sentinel="$SPRINT_DIR/.researchloop/${active_step}_result_seen"
+            local pgid_file="$SPRINT_DIR/.researchloop/${active_step}_pgid"
+            if [ -f "$sentinel" ] && [ -f "$pgid_file" ]; then
+                local s_mtime now_t s_age pgid
+                s_mtime=$(stat -c %Y "$sentinel" 2>/dev/null || stat -f %m "$sentinel" 2>/dev/null || echo 0)
+                now_t=$(date +%s)
+                s_age=$((now_t - s_mtime))
+                pgid=$(cat "$pgid_file" 2>/dev/null || true)
+                if [ -n "$pgid" ] && [ "$s_age" -ge "$result_grace_secs" ] && [ "$last_killed_pgid" != "$pgid" ]; then
+                    echo "[$(date -u +%H:%M:%S)] STUCK_PIPE recovery: $active_step result event seen ${s_age}s ago but pipeline still open; SIGTERM pgid $pgid" >> "$LOG_FILE"
+                    kill -TERM -"$pgid" 2>/dev/null || true
+                    # Escalate to SIGKILL in case the group ignores SIGTERM.
+                    ( sleep "$kill_escalate_secs" && kill -KILL -"$pgid" 2>/dev/null || true ) &
+                    last_killed_pgid="$pgid"
+                fi
             fi
         fi
         send_heartbeat "$step"

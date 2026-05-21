@@ -158,8 +158,36 @@ class TestJobScriptWatchdog:
         # Once-per-stuck-episode flag, not log-every-heartbeat.
         assert "stuck_warned" in script
 
+    def _assert_hung_pipeline_recovery_present(self, script: str) -> None:
+        # claude must run in its own session so the watchdog can SIGTERM the
+        # whole group (claude + any leaked Bash-tool subprocesses) by pgid.
+        assert "setsid " in script
+        # Per-step pgid + result sentinel files used by the watchdog.
+        assert "_pgid" in script
+        assert "_result_seen" in script
+        # Stream filter writes the sentinel on the terminal `result` event.
+        assert "open('$result_sentinel'" in script
+        # The watchdog escalates SIGTERM → SIGKILL against the pgid (negative
+        # number argument to kill targets a process group).
+        assert "kill -TERM -" in script
+        assert "kill -KILL -" in script
+        # Grace period between result event and pgid kill.
+        assert "result_grace_secs=60" in script
+        # Recovery messaging in the log so operators can tell when a kill ran.
+        assert "STUCK_PIPE recovery" in script
+        # run_step treats nonzero exit as success iff the sentinel exists.
+        assert 'if [ ! -f "$result_sentinel" ]; then' in script
+        # active_step file replaces the old log-grep step detection.
+        assert "ACTIVE_STEP_FILE=" in script
+
     def test_slurm_template_includes_watchdog(self):
         self._assert_watchdog_present(_render_job_template("slurm.sh.j2"))
 
     def test_sge_template_includes_watchdog(self):
         self._assert_watchdog_present(_render_job_template("sge.sh.j2"))
+
+    def test_slurm_template_includes_hung_pipeline_recovery(self):
+        self._assert_hung_pipeline_recovery_present(_render_job_template("slurm.sh.j2"))
+
+    def test_sge_template_includes_hung_pipeline_recovery(self):
+        self._assert_hung_pipeline_recovery_present(_render_job_template("sge.sh.j2"))
