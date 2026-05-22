@@ -1,6 +1,6 @@
 [project]
 name = "researchloop"
-version = "0.3.3"
+version = "0.3.4"
 description = "Automated research sprint platform for HPC clusters"
 readme = "README.md"
 license = {text = "MIT"}
