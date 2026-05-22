@@ -241,6 +241,17 @@ print(json.dumps({
 }
 
 _heartbeat_loop() {
+    # The parent script runs with `set -euo pipefail`, which is inherited
+    # by this backgrounded subshell. An unprotected command-substitution
+    # failure here (e.g. `ls -t pattern | head -1` racing into SIGPIPE on
+    # ls under pipefail, or a glob that matches nothing) is enough to kill
+    # the entire watchdog and leave the sprint without heartbeats or
+    # STUCK_PIPE detection for the rest of its wall-clock. Disable strict
+    # mode for the watchdog — a noisy heartbeat is far better than a
+    # silently-dead one.
+    set +e
+    set +o pipefail
+
     # Watchdog: detect and recover from hung pipelines.
     #
     # STUCK_PIPE warn: the active step's stream-json file goes silent for

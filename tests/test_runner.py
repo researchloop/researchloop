@@ -176,6 +176,21 @@ class TestJobScriptWatchdog:
         # Once-per-stuck-episode flag, not log-every-heartbeat.
         assert "stuck_warned" in script
 
+    def _assert_heartbeat_loop_disables_strict_mode(self, script: str) -> None:
+        # The parent script has set -euo pipefail. The backgrounded
+        # _heartbeat_loop inherits it — without explicitly disabling errexit
+        # and pipefail, a single command-substitution failure (e.g. an
+        # ls|head SIGPIPE race) can silently kill the watchdog and the
+        # sprint loses all heartbeat + STUCK_PIPE detection for the rest of
+        # its wall-clock. The first two `set` lines inside the function
+        # must disable both modes.
+        loop_idx = script.index("_heartbeat_loop() {")
+        body_idx = script.index("\n", loop_idx) + 1
+        # Check the disabling lines are at the top of the function body.
+        head = script[body_idx : body_idx + 800]
+        assert "set +e" in head
+        assert "set +o pipefail" in head
+
     def _assert_hung_pipeline_recovery_present(self, script: str) -> None:
         # claude must run in its own session so the watchdog can SIGTERM the
         # whole group (claude + any leaked Bash-tool subprocesses) by pgid.
@@ -209,3 +224,13 @@ class TestJobScriptWatchdog:
 
     def test_sge_template_includes_hung_pipeline_recovery(self):
         self._assert_hung_pipeline_recovery_present(_render_job_template("sge.sh.j2"))
+
+    def test_slurm_heartbeat_loop_disables_strict_mode(self):
+        self._assert_heartbeat_loop_disables_strict_mode(
+            _render_job_template("slurm.sh.j2")
+        )
+
+    def test_sge_heartbeat_loop_disables_strict_mode(self):
+        self._assert_heartbeat_loop_disables_strict_mode(
+            _render_job_template("sge.sh.j2")
+        )
