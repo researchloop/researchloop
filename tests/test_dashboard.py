@@ -1100,3 +1100,110 @@ class TestLoopsPage:
             )
             assert resp.status_code == 200
             assert "Auto-Loops" in resp.text
+
+
+class TestParseExtraSlurmOptions:
+    """Unit tests for the free-text 'additional options' parser."""
+
+    def test_double_dash_equals(self):
+        from researchloop.dashboard.routes import _parse_extra_slurm_options
+
+        assert _parse_extra_slurm_options("--partition=gpu") == {"partition": "gpu"}
+
+    def test_double_dash_space(self):
+        from researchloop.dashboard.routes import _parse_extra_slurm_options
+
+        assert _parse_extra_slurm_options("--partition gpu") == {"partition": "gpu"}
+
+    def test_no_dashes_equals(self):
+        from researchloop.dashboard.routes import _parse_extra_slurm_options
+
+        assert _parse_extra_slurm_options("partition=gpu") == {"partition": "gpu"}
+
+    def test_multiple_lines_and_commas(self):
+        from researchloop.dashboard.routes import _parse_extra_slurm_options
+
+        text = "--partition=gpu\n--qos=high, account=lab"
+        assert _parse_extra_slurm_options(text) == {
+            "partition": "gpu",
+            "qos": "high",
+            "account": "lab",
+        }
+
+    def test_blank_and_valueless_tokens_skipped(self):
+        from researchloop.dashboard.routes import _parse_extra_slurm_options
+
+        # Bare flags have no value and the templates only emit key=value
+        # pairs, so they are dropped rather than rendered as "--key=".
+        assert _parse_extra_slurm_options("\n--exclusive\n  \n") == {}
+
+    def test_value_with_equals_in_it(self):
+        from researchloop.dashboard.routes import _parse_extra_slurm_options
+
+        assert _parse_extra_slurm_options("--export=ALL,FOO=bar") == {
+            "export": "ALL",
+            "FOO": "bar",
+        }
+
+    def test_format_extra_options_round_trip(self):
+        from researchloop.dashboard.routes import (
+            _format_extra_options,
+            _parse_extra_slurm_options,
+        )
+
+        opts = {
+            "gres": "gpu:1",
+            "mem": "32G",
+            "cpus-per-task": "8",
+            "partition": "gpu",
+            "qos": "high",
+        }
+        # Resource keys with dedicated fields are excluded.
+        text = _format_extra_options(opts)
+        assert _parse_extra_slurm_options(text) == {"partition": "gpu", "qos": "high"}
+
+
+class TestSprintSubmissionExtraOptions:
+    """The new-sprint form forwards extra options + time limit."""
+
+    async def test_new_sprint_forwards_extra_options_and_time_limit(self):
+        from unittest.mock import AsyncMock, patch
+
+        from researchloop.core.models import Sprint, SprintStatus
+
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+
+            fake = Sprint(
+                id="sp-extra01",
+                study_name="test",
+                idea="idea",
+                status=SprintStatus.SUBMITTED,
+            )
+            with patch.object(
+                orch.sprint_manager,
+                "run_sprint",
+                new_callable=AsyncMock,
+                return_value=fake,
+            ) as mock_run:
+                resp = client.post(
+                    "/dashboard/sprints/new",
+                    data={
+                        "csrf_token": csrf,
+                        "study_name": "test",
+                        "idea": "investigate X",
+                        "gpu": "gpu:1",
+                        "extra_options": "--partition=gpu\n--qos=high",
+                        "time_limit": "3:00:00",
+                    },
+                    cookies={SESSION_COOKIE: cookie},
+                    follow_redirects=False,
+                )
+                assert resp.status_code == 303
+                mock_run.assert_called_once()
+                _, kwargs = mock_run.call_args
+                assert kwargs["time_limit"] == "3:00:00"
+                assert kwargs["job_options"]["partition"] == "gpu"
+                assert kwargs["job_options"]["qos"] == "high"
+                assert kwargs["job_options"]["gres"] == "gpu:1"

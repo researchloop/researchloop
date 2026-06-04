@@ -1046,3 +1046,148 @@ class TestSubmitSprintJobOptions:
         assert script is not None
         assert "#SBATCH --gres=gpu:a100:2" in script
         assert "#SBATCH --gres=gpu:1" not in script
+
+    async def test_arbitrary_option_rendered_as_sbatch_directive(
+        self, db_with_study, tmp_path
+    ):
+        config = Config(
+            studies=[
+                StudyConfig(
+                    name="test-study",
+                    cluster="local",
+                    sprints_dir=str(tmp_path / "sprints"),
+                ),
+            ],
+            clusters=[
+                ClusterConfig(
+                    name="local",
+                    host="localhost",
+                    scheduler_type="slurm",
+                    working_dir=str(tmp_path / "work"),
+                ),
+            ],
+            db_path=":memory:",
+            artifact_dir=str(tmp_path / "artifacts"),
+            shared_secret="test",
+            orchestrator_url="http://localhost:8080",
+        )
+
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(
+            sprint.id, extra_job_options={"partition": "gpu", "qos": "high"}
+        )
+
+        script = _extract_job_script(ssh_mock)
+        assert script is not None
+        assert "#SBATCH --partition=gpu" in script
+        assert "#SBATCH --qos=high" in script
+
+    async def test_time_limit_override_replaces_study_default(
+        self, db_with_study, tmp_path
+    ):
+        config = Config(
+            studies=[
+                StudyConfig(
+                    name="test-study",
+                    cluster="local",
+                    sprints_dir=str(tmp_path / "sprints"),
+                    max_sprint_duration_hours=8,
+                ),
+            ],
+            clusters=[
+                ClusterConfig(
+                    name="local",
+                    host="localhost",
+                    scheduler_type="slurm",
+                    working_dir=str(tmp_path / "work"),
+                ),
+            ],
+            db_path=":memory:",
+            artifact_dir=str(tmp_path / "artifacts"),
+            shared_secret="test",
+            orchestrator_url="http://localhost:8080",
+        )
+
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id, time_limit="2:00:00")
+
+        script = _extract_job_script(ssh_mock)
+        assert script is not None
+        assert "#SBATCH --time=2:00:00" in script
+        assert "#SBATCH --time=8:00:00" not in script
+
+        row = await queries.get_sprint(db_with_study, sprint.id)
+        assert row is not None
+        meta = json.loads(row["metadata_json"])
+        assert meta["time_limit"] == "2:00:00"
+
+    async def test_run_sprint_forwards_time_limit(self, db_with_study, tmp_path):
+        config = Config(
+            studies=[
+                StudyConfig(
+                    name="test-study",
+                    cluster="local",
+                    sprints_dir=str(tmp_path / "sprints"),
+                ),
+            ],
+            clusters=[
+                ClusterConfig(
+                    name="local",
+                    host="localhost",
+                    scheduler_type="slurm",
+                    working_dir=str(tmp_path / "work"),
+                ),
+            ],
+            db_path=":memory:",
+            artifact_dir=str(tmp_path / "artifacts"),
+            shared_secret="test",
+            orchestrator_url="http://localhost:8080",
+        )
+
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        await mgr.run_sprint(
+            "test-study",
+            "idea",
+            job_options={"partition": "debug"},
+            time_limit="1:30:00",
+        )
+
+        script = _extract_job_script(ssh_mock)
+        assert script is not None
+        assert "#SBATCH --time=1:30:00" in script
+        assert "#SBATCH --partition=debug" in script

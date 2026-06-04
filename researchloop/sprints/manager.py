@@ -139,10 +139,12 @@ class SprintManager:
         self,
         sprint_id: str,
         extra_job_options: dict[str, str] | None = None,
+        time_limit: str | None = None,
     ) -> str:
         """Submit a pending sprint to its cluster scheduler.
 
-        Returns the scheduler-assigned job ID.
+        If *time_limit* is None, the study's ``max_sprint_duration_hours``
+        is used. Returns the scheduler-assigned job ID.
         """
         sprint = await queries.get_sprint(self.db, sprint_id)
         if sprint is None:
@@ -355,9 +357,12 @@ class SprintManager:
         # Resolve the final job resources for submission. Stored on the
         # sprint so the dashboard can display what the job was launched
         # with (including any form overrides that cleared defaults).
-        time_limit = (
-            f"{study_cfg.max_sprint_duration_hours}:00:00" if study_cfg else "8:00:00"
-        )
+        if time_limit is None:
+            time_limit = (
+                f"{study_cfg.max_sprint_duration_hours}:00:00"
+                if study_cfg
+                else "8:00:00"
+            )
         merged_job_options = _merge_job_options(
             cluster_cfg.job_options,
             study_cfg.job_options if study_cfg else {},
@@ -487,13 +492,16 @@ class SprintManager:
         study_name: str,
         idea: str | None = None,
         job_options: dict[str, str] | None = None,
+        time_limit: str | None = None,
     ) -> Sprint:
         """Create a sprint and immediately submit it.
 
         Returns the :class:`Sprint` with updated status and job ID.
         """
         sprint = await self.create_sprint(study_name, idea)
-        job_id = await self.submit_sprint(sprint.id, extra_job_options=job_options)
+        job_id = await self.submit_sprint(
+            sprint.id, extra_job_options=job_options, time_limit=time_limit
+        )
         sprint.status = SprintStatus.SUBMITTED
         sprint.job_id = job_id
         return sprint

@@ -197,7 +197,7 @@ class TestOnSprintCompleteStartsNext:
         ctrl.sprint_manager.create_sprint.assert_called_once_with("test-study", None)
         # submit_sprint was called after loop_id was set.
         ctrl.sprint_manager.submit_sprint.assert_called_once_with(
-            "sp-next", extra_job_options=None
+            "sp-next", extra_job_options=None, time_limit=None
         )
 
         # current_sprint_id updated.
@@ -515,6 +515,48 @@ class TestJobOptionsPassthrough:
         ctrl.sprint_manager.submit_sprint.assert_called_once()
         call_kw = ctrl.sprint_manager.submit_sprint.call_args.kwargs
         assert call_kw.get("extra_job_options") == {"gres": "gpu:l40:2"}
+
+    async def test_start_stores_and_passes_time_limit(
+        self, db_with_study, sample_config
+    ):
+        """start() stores time_limit in metadata and forwards it to submit."""
+        ctrl = _make_controller(db_with_study, sample_config)
+
+        loop_id = await ctrl.start(
+            "test-study",
+            count=2,
+            time_limit="6:00:00",
+        )
+
+        loop = await queries.get_auto_loop(db_with_study, loop_id)
+        assert loop is not None
+        import json
+
+        meta = json.loads(loop["metadata_json"])
+        assert meta["time_limit"] == "6:00:00"
+
+        call_kw = ctrl.sprint_manager.submit_sprint.call_args.kwargs
+        assert call_kw.get("time_limit") == "6:00:00"
+
+    async def test_resume_forwards_time_limit_from_metadata(
+        self, db_with_study, sample_config
+    ):
+        """resume() reads time_limit back out of metadata and forwards it."""
+        ctrl = _make_controller(db_with_study, sample_config)
+
+        loop_id = await ctrl.start(
+            "test-study",
+            count=3,
+            time_limit="6:00:00",
+        )
+        # Mark the loop stopped so it can be resumed.
+        await queries.update_auto_loop(db_with_study, loop_id, status="stopped")
+        ctrl.sprint_manager.submit_sprint.reset_mock()
+
+        await ctrl.resume(loop_id)
+
+        call_kw = ctrl.sprint_manager.submit_sprint.call_args.kwargs
+        assert call_kw.get("time_limit") == "6:00:00"
 
 
 # ------------------------------------------------------------------

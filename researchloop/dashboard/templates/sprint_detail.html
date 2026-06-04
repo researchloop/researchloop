@@ -142,6 +142,10 @@
           <input type="text" name="time_limit" id="tweak-time" value="{{ default_time_limit }}" placeholder="e.g. 2:00:00" style="width:90px;font-size:0.85rem">
         </div>
       </div>
+      <div class="form-group" style="margin-top:0.5rem">
+        <label for="tweak-extra" style="font-size:0.8rem">Additional scheduler options</label>
+        <textarea name="extra_options" id="tweak-extra" rows="2" placeholder="One per line, e.g. --partition=gpu" style="font-size:0.85rem">{{ default_extra_options }}</textarea>
+      </div>
     </details>
     <button type="submit" class="btn btn-sm">Submit tweak</button>
   </form>

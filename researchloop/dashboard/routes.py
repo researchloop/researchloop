@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +35,56 @@ logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+# Resource options that have their own dedicated form fields. Anything
+# else entered in the free-text "additional options" box is preserved
+# as-is and passed straight through to the scheduler.
+_KNOWN_RESOURCE_KEYS = ("gres", "mem", "cpus-per-task")
+
+
+def _parse_extra_slurm_options(text: str) -> dict[str, str]:
+    """Parse a free-text block of extra scheduler options into a dict.
+
+    Accepts one option per line (commas also separate options), in any
+    of these styles::
+
+        --partition=gpu
+        --partition gpu
+        partition=gpu
+        partition gpu
+
+    Leading dashes are stripped; the resulting key/value pairs land in
+    ``job_options``, which the job templates render as
+    ``#SBATCH --<key>=<value>`` (SLURM) or ``#$ <key> <value>`` (SGE).
+    Tokens without a value are skipped, since the templates only emit
+    key=value pairs.
+    """
+    opts: dict[str, str] = {}
+    for raw in re.split(r"[\n,]+", text):
+        item = raw.strip().lstrip("-").strip()
+        if not item:
+            continue
+        if "=" in item:
+            key, _, value = item.partition("=")
+        else:
+            key, _, value = item.partition(" ")
+        key = key.strip()
+        value = value.strip()
+        if key and value:
+            opts[key] = value
+    return opts
+
+
+def _format_extra_options(opts: dict[str, str]) -> str:
+    """Render non-resource ``job_options`` as a free-text options block.
+
+    Inverse of :func:`_parse_extra_slurm_options`; used to pre-fill the
+    "additional options" textarea with whatever the cluster/study config
+    already sets (e.g. a default ``--partition``).
+    """
+    return "\n".join(
+        f"--{k}={v}" for k, v in opts.items() if k not in _KNOWN_RESOURCE_KEYS and v
+    )
 
 
 # Add a markdown filter for rendering reports.
@@ -139,6 +190,9 @@ def add_dashboard_routes(
             opts["mem"] = mem
         if cpus or allow_clear:
             opts["cpus-per-task"] = cpus
+        extra = str(getattr(form, "get", lambda k, d: d)("extra_options", "")).strip()
+        if extra:
+            opts.update(_parse_extra_slurm_options(extra))
         return opts
 
     def _study_from_form(form: object, existing_name: str | None = None) -> StudyConfig:
@@ -579,12 +633,15 @@ def add_dashboard_routes(
         sprints = await queries.list_sprints(orchestrator.db, study_name=name, limit=50)
         prefill_idea = request.query_params.get("idea", "")
 
-        # Resolve default job_options (cluster + study merged).
+        # Resolve default job_options (cluster + study merged) and the
+        # default per-sprint time limit.
         default_opts: dict[str, str] = {}
+        default_time_limit = "8:00:00"
         for c in orchestrator.config.clusters:
             for s in orchestrator.config.studies:
                 if s.name == name and s.cluster == c.name:
                     default_opts = {**c.job_options, **s.job_options}
+                    default_time_limit = f"{s.max_sprint_duration_hours}:00:00"
                     break
 
         yaml_json = study.get("yaml_config_json")
@@ -606,6 +663,8 @@ def add_dashboard_routes(
                 default_gpu=default_opts.get("gres", ""),
                 default_mem=default_opts.get("mem", ""),
                 default_cpus=default_opts.get("cpus-per-task", ""),
+                default_time_limit=default_time_limit,
+                default_extra_options=_format_extra_options(default_opts),
                 source=source,
                 is_ui_edited=is_ui_edited,
                 has_yaml_version=has_yaml_version,
@@ -727,6 +786,8 @@ def add_dashboard_routes(
                     "gpu": opts.get("gres", ""),
                     "mem": opts.get("mem", ""),
                     "cpus": opts.get("cpus-per-task", ""),
+                    "time": f"{s.max_sprint_duration_hours}:00:00",
+                    "extra": _format_extra_options(opts),
                 }
 
         return templates.TemplateResponse(
@@ -816,6 +877,7 @@ def add_dashboard_routes(
                 default_mem=default_opts.get("mem", ""),
                 default_cpus=default_opts.get("cpus-per-task", ""),
                 default_time_limit=default_time_limit,
+                default_extra_options=_format_extra_options(default_opts),
                 submitted_job_options=submitted_job_options,
                 submitted_time_limit=submitted_time_limit,
             ),
@@ -1285,9 +1347,10 @@ def add_dashboard_routes(
             return RedirectResponse("/dashboard/sprints", status_code=303)
 
         job_opts = _parse_job_options(form, allow_clear=True)
+        time_limit = str(form.get("time_limit", "")).strip() or None
         try:
             sprint = await orchestrator.sprint_manager.run_sprint(
-                study_name, idea, job_options=job_opts or None
+                study_name, idea, job_options=job_opts or None, time_limit=time_limit
             )
             return RedirectResponse(
                 f"/dashboard/sprints/{sprint.id}",
@@ -1314,9 +1377,10 @@ def add_dashboard_routes(
             )
 
         job_opts = _parse_job_options(form, allow_clear=True)
+        time_limit = str(form.get("time_limit", "")).strip() or None
         try:
             sprint = await orchestrator.sprint_manager.run_sprint(
-                name, idea, job_options=job_opts or None
+                name, idea, job_options=job_opts or None, time_limit=time_limit
             )
             return RedirectResponse(
                 f"/dashboard/sprints/{sprint.id}",
@@ -1356,6 +1420,8 @@ def add_dashboard_routes(
                     "gpu": opts.get("gres", ""),
                     "mem": opts.get("mem", ""),
                     "cpus": opts.get("cpus-per-task", ""),
+                    "time": f"{s.max_sprint_duration_hours}:00:00",
+                    "extra": _format_extra_options(opts),
                 }
 
         return templates.TemplateResponse(
@@ -1462,12 +1528,14 @@ def add_dashboard_routes(
             count = 5
 
         job_opts = _parse_job_options(form, allow_clear=True)
+        time_limit = str(form.get("time_limit", "")).strip() or None
         try:
             loop_id = await orchestrator.auto_loop.start(
                 study_name,
                 count,
                 context,
                 job_options=job_opts or None,
+                time_limit=time_limit,
             )
             return RedirectResponse(
                 f"/dashboard/loops/{loop_id}",

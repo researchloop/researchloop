@@ -51,12 +51,15 @@ class AutoLoopController:
         count: int,
         context: str = "",
         job_options: dict[str, str] | None = None,
+        time_limit: str | None = None,
     ) -> str:
         """Start a new auto-loop for *study_name* with *count* sprints.
 
         *context* is optional guidance for the idea generator
         (e.g. "Focus on improving F1 score").
         *job_options* are SLURM overrides applied to every sprint.
+        *time_limit* overrides the per-sprint wall-clock limit (e.g.
+        ``"4:00:00"``) for every sprint in the loop.
 
         Raises ``ValueError`` if the study has ``allow_loop = false``.
         """
@@ -80,6 +83,8 @@ class AutoLoopController:
             meta["context"] = context
         if job_options:
             meta["job_options"] = job_options
+        if time_limit:
+            meta["time_limit"] = time_limit
         if meta:
             await queries.update_auto_loop(
                 self.db,
@@ -100,7 +105,7 @@ class AutoLoopController:
         sprint = await self.sprint_manager.create_sprint(study_name, None)
         await queries.update_sprint(self.db, sprint.id, loop_id=loop_id)
         job_id = await self.sprint_manager.submit_sprint(
-            sprint.id, extra_job_options=job_options
+            sprint.id, extra_job_options=job_options, time_limit=time_limit
         )
         sprint.job_id = job_id
 
@@ -137,19 +142,24 @@ class AutoLoopController:
 
         study_name: str = loop["study_name"]
 
-        # Extract job_options from loop metadata.
+        # Extract job_options and time_limit from loop metadata.
         loop_job_options: dict[str, str] | None = None
+        loop_time_limit: str | None = None
         meta_str = loop.get("metadata_json")
         if meta_str:
             try:
-                loop_job_options = json.loads(meta_str).get("job_options")
+                meta = json.loads(meta_str)
+                loop_job_options = meta.get("job_options")
+                loop_time_limit = meta.get("time_limit")
             except (json.JSONDecodeError, TypeError):
                 pass
 
         sprint = await self.sprint_manager.create_sprint(study_name, None)
         await queries.update_sprint(self.db, sprint.id, loop_id=loop_id)
         job_id = await self.sprint_manager.submit_sprint(
-            sprint.id, extra_job_options=loop_job_options
+            sprint.id,
+            extra_job_options=loop_job_options,
+            time_limit=loop_time_limit,
         )
         sprint.job_id = job_id
 
@@ -240,12 +250,15 @@ class AutoLoopController:
             )
             return
 
-        # Extract job_options from loop metadata.
+        # Extract job_options and time_limit from loop metadata.
         loop_job_options: dict[str, str] | None = None
+        loop_time_limit: str | None = None
         meta_str = parent_loop.get("metadata_json")
         if meta_str:
             try:
-                loop_job_options = json.loads(meta_str).get("job_options")
+                meta = json.loads(meta_str)
+                loop_job_options = meta.get("job_options")
+                loop_time_limit = meta.get("time_limit")
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -256,7 +269,9 @@ class AutoLoopController:
         sprint = await self.sprint_manager.create_sprint(study_name, None)
         await queries.update_sprint(self.db, sprint.id, loop_id=loop_id)
         job_id = await self.sprint_manager.submit_sprint(
-            sprint.id, extra_job_options=loop_job_options
+            sprint.id,
+            extra_job_options=loop_job_options,
+            time_limit=loop_time_limit,
         )
         sprint.job_id = job_id
 
