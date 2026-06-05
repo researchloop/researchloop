@@ -1191,3 +1191,30 @@ class TestSubmitSprintJobOptions:
         assert script is not None
         assert "#SBATCH --time=1:30:00" in script
         assert "#SBATCH --partition=debug" in script
+
+    async def test_default_claude_command_disables_interactive_tools(
+        self, db_with_study, tmp_path
+    ):
+        # _make_config builds a cluster with no claude_command override, so
+        # the rendered job script should carry the default --disallowedTools.
+        config = _make_config(tmp_path)
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        script = _extract_job_script(ssh_mock)
+        assert script is not None
+        assert "--dangerously-skip-permissions" in script
+        assert "--disallowedTools Task Monitor PushNotification" in script
+        assert "RemoteTrigger" in script

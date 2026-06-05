@@ -2,7 +2,7 @@
 
 import pytest
 
-from researchloop.core.config import load_config
+from researchloop.core.config import DEFAULT_CLAUDE_COMMAND, load_config
 
 
 class TestLoadConfig:
@@ -272,3 +272,48 @@ class TestClusterPresets:
         assert preset.cpus == "4"
         assert preset.time == "2:00:00"
         assert preset.extra_options == "--qos=high"
+
+
+class TestDefaultClaudeCommand:
+    """The default claude command disables tools that break under `claude -p`."""
+
+    def test_default_includes_disallowed_tools(self):
+        assert DEFAULT_CLAUDE_COMMAND.startswith(
+            "claude --dangerously-skip-permissions"
+        )
+        assert "--disallowedTools" in DEFAULT_CLAUDE_COMMAND
+        for tool in [
+            "Task",
+            "Monitor",
+            "PushNotification",
+            "CronCreate",
+            "CronList",
+            "CronDelete",
+            "CronUpdate",
+            "AskUserQuestion",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "RemoteTrigger",
+        ]:
+            assert tool in DEFAULT_CLAUDE_COMMAND
+
+    def test_cluster_without_override_uses_default(self, tmp_path):
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        assert config.clusters[0].claude_command == DEFAULT_CLAUDE_COMMAND
+
+    def test_cluster_override_is_respected(self, tmp_path):
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n'
+            'claude_command = "singularity exec img.sif claude"\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        assert config.clusters[0].claude_command == "singularity exec img.sif claude"

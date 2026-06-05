@@ -14,6 +14,8 @@ from pathlib import Path
 
 import jinja2
 
+from researchloop.core.config import DEFAULT_CLAUDE_COMMAND
+
 logger = logging.getLogger(__name__)
 
 # Template directory lives alongside this module.
@@ -38,7 +40,7 @@ async def run_claude(
     claude_md: str | None = None,
     session_id: str | None = None,
     timeout: int = 3600,
-    claude_command: str = "claude --dangerously-skip-permissions",
+    claude_command: str = DEFAULT_CLAUDE_COMMAND,
 ) -> tuple[str, str | None]:
     """Run the Claude CLI with the given prompt.
 

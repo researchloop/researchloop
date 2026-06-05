@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from researchloop.schedulers.base import BaseScheduler
     from researchloop.sprints.auto_loop import AutoLoopController
 
+from researchloop.core.config import DEFAULT_CLAUDE_COMMAND
 from researchloop.core.models import (
     Sprint,
     SprintStatus,
@@ -386,7 +387,7 @@ class SprintManager:
                 (study_cfg.claude_command if study_cfg else "")
                 or cluster_cfg.claude_command
                 or self.config.claude_command
-                or "claude --dangerously-skip-permissions"
+                or DEFAULT_CLAUDE_COMMAND
             ),
             orchestrator_url=self.config.orchestrator_url or "",
             webhook_token=sprint.get("webhook_token", ""),
@@ -1045,7 +1046,7 @@ class SprintManager:
                 (study_cfg.claude_command if study_cfg else "")
                 or cluster_cfg.claude_command
                 or self.config.claude_command
-                or "claude --dangerously-skip-permissions"
+                or DEFAULT_CLAUDE_COMMAND
             ),
             orchestrator_url=self.config.orchestrator_url or "",
             webhook_token=sprint.get("webhook_token", ""),

@@ -12,6 +12,7 @@ while [[ $# -gt 0 ]]; do
         --resume) shift 2;;
         --dangerously-skip-permissions) shift;;
         --allowedTools) shift; while [[ $# -gt 0 && ! "$1" =~ ^- ]]; do shift; done;;
+        --disallowedTools) shift; while [[ $# -gt 0 && ! "$1" =~ ^- ]]; do shift; done;;
         *) shift;;
     esac
 done

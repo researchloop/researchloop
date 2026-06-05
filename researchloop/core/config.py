@@ -23,6 +23,20 @@ CONFIG_SEARCH_PATHS = [
     Path.home() / ".config" / "researchloop",
 ]
 
+# Default command used to invoke Claude on the cluster. The
+# ``--disallowedTools`` flags strip out interactive/agentic tools that
+# don't work under ``claude -p`` (non-interactive) and that Claude would
+# otherwise try to use — e.g. backgrounding work via Task/Monitor or
+# scheduling crons — which just wastes a sprint. Override per cluster or
+# study via ``claude_command`` if you need a different invocation (e.g.
+# wrapping in ``singularity exec``); overrides manage their own flags.
+DEFAULT_CLAUDE_COMMAND = (
+    "claude --dangerously-skip-permissions "
+    "--disallowedTools Task Monitor PushNotification "
+    "CronCreate CronList CronDelete CronUpdate "
+    "AskUserQuestion EnterPlanMode ExitPlanMode RemoteTrigger"
+)
+
 
 @dataclass
 class ClusterPreset:
@@ -57,7 +71,7 @@ class ClusterConfig:
     max_concurrent_jobs: int = 4
     environment: dict[str, str] = field(default_factory=dict)
     job_options: dict[str, str] = field(default_factory=dict)
-    claude_command: str = "claude --dangerously-skip-permissions"
+    claude_command: str = DEFAULT_CLAUDE_COMMAND
     context: str = ""
     context_paths: list[str] = field(default_factory=list)
     presets: list[ClusterPreset] = field(default_factory=list)
@@ -168,7 +182,7 @@ def _parse_cluster(data: dict) -> ClusterConfig:
         job_options=data.get("job_options", {}),
         claude_command=data.get(
             "claude_command",
-            "claude --dangerously-skip-permissions",
+            DEFAULT_CLAUDE_COMMAND,
         ),
         context=data.get("context", ""),
         context_paths=ctx,

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from researchloop.core.config import DEFAULT_CLAUDE_COMMAND
 from researchloop.runner.claude import render_template, run_claude
 from researchloop.runner.upload import send_heartbeat
 
@@ -40,7 +41,7 @@ class Pipeline:
         orchestrator_url: str,
         shared_secret: str,
         red_team_rounds: int = 3,
-        claude_command: str = "claude --dangerously-skip-permissions",
+        claude_command: str = DEFAULT_CLAUDE_COMMAND,
     ) -> None:
         self.sprint_id = sprint_id
         self.sprint_dir = sprint_dir

@@ -33,7 +33,13 @@ key_path = "~/.ssh/id_ed25519"           # Path to SSH private key
 scheduler_type = "slurm"                 # "slurm", "sge", or "local"
 working_dir = "/scratch/user/researchloop"  # Base directory on the cluster
 max_concurrent_jobs = 4                  # Max simultaneous jobs on this cluster
-claude_command = "claude --dangerously-skip-permissions"  # Claude CLI command
+# Override the claude invocation for this cluster. Leave unset to use the
+# default, which is `claude --dangerously-skip-permissions` plus a set of
+# `--disallowedTools` (Task, Monitor, PushNotification, Cron*, AskUserQuestion,
+# EnterPlanMode, ExitPlanMode, RemoteTrigger) — interactive/agentic tools that
+# don't work under `claude -p`. Set this only if you need a custom invocation
+# (e.g. `singularity exec img.sif claude ...`); overrides manage their own flags.
+# claude_command = "claude --dangerously-skip-permissions"
 
 # Cluster-specific context (appended after global context)
 context = "GPUs are NVIDIA L40. Check CUDA_VISIBLE_DEVICES before running."

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import click
 
+from researchloop.core.config import DEFAULT_CLAUDE_COMMAND
 from researchloop.runner.pipeline import Pipeline
 from researchloop.runner.upload import send_webhook, upload_artifacts
 
@@ -27,7 +28,7 @@ async def _run_pipeline(
     orchestrator_url: str,
     shared_secret: str,
     red_team_rounds: int,
-    claude_command: str = "claude --dangerously-skip-permissions",
+    claude_command: str = DEFAULT_CLAUDE_COMMAND,
 ) -> None:
     """Execute the full pipeline and report back to the orchestrator."""
     sprint_path = Path(sprint_dir)
@@ -115,7 +116,7 @@ def cli() -> None:
 )
 @click.option(
     "--claude-command",
-    default="claude --dangerously-skip-permissions",
+    default=DEFAULT_CLAUDE_COMMAND,
     show_default=True,
     help="Command to invoke Claude CLI",
 )
