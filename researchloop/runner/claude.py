@@ -157,6 +157,15 @@ def _parse_output(raw: str) -> tuple[str, str | None]:
     # The CLI may nest the text in different fields depending on version.
     output_text: str = ""
     if isinstance(data, dict):
+        # A terminal result can report an error (API overload, max turns,
+        # exec error) while the process still exits 0. Such a result is a
+        # failure, not output — raise so the caller fails the step rather
+        # than treating the error message as the step's result.
+        subtype = str(data.get("subtype", "") or "")
+        if data.get("is_error") or subtype.startswith("error"):
+            reason = subtype or "error"
+            detail = str(data.get("result", "") or "")
+            raise RuntimeError(f"Claude reported an error ({reason}): {detail[:500]}")
         output_text = (
             data.get("result", "")
             or data.get("text", "")

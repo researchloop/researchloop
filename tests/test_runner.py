@@ -79,6 +79,25 @@ class TestParseOutput:
         assert text == "primary"
         assert sid == "s1"
 
+    def test_is_error_result_raises(self):
+        import pytest
+
+        raw = '{"result": "API overloaded", "is_error": true, "subtype": "success"}'
+        with pytest.raises(RuntimeError, match="error"):
+            _parse_output(raw)
+
+    def test_error_subtype_raises(self):
+        import pytest
+
+        raw = '{"result": "hit the cap", "subtype": "error_max_turns"}'
+        with pytest.raises(RuntimeError, match="error_max_turns"):
+            _parse_output(raw)
+
+    def test_success_result_with_explicit_false_is_ok(self):
+        raw = '{"result": "all good", "is_error": false, "subtype": "success"}'
+        text, sid = _parse_output(raw)
+        assert text == "all good"
+
 
 class TestRenderTemplate:
     def test_research_template(self):
@@ -224,6 +243,32 @@ class TestJobScriptWatchdog:
 
     def test_sge_template_includes_hung_pipeline_recovery(self):
         self._assert_hung_pipeline_recovery_present(_render_job_template("sge.sh.j2"))
+
+    def _assert_error_result_handling_present(self, script: str) -> None:
+        # The stream filter must detect a terminal result that carries an
+        # error (is_error / subtype error*) and exit nonzero rather than
+        # logging "Done" and letting the result sentinel mark it complete.
+        assert "evt.get('is_error')" in script
+        assert "subtype.startswith('error')" in script
+        assert "open('$error_marker'" in script
+        assert "sys.exit(1)" in script
+        # run_step must fail the step when the error marker exists, ahead of
+        # the result-sentinel "treat as complete" path.
+        assert 'if [ -f "$error_marker" ]; then' in script
+        error_idx = script.index('if [ -f "$error_marker" ]; then')
+        sentinel_idx = script.index('if [ ! -f "$result_sentinel" ]; then')
+        assert error_idx < sentinel_idx, (
+            "error_marker check must come before the result_sentinel "
+            "'treat as complete' path"
+        )
+        # The error marker is reset at the start of each step.
+        assert 'rm -f "$pgid_file" "$result_sentinel" "$error_marker"' in script
+
+    def test_slurm_template_fails_on_error_result(self):
+        self._assert_error_result_handling_present(_render_job_template("slurm.sh.j2"))
+
+    def test_sge_template_fails_on_error_result(self):
+        self._assert_error_result_handling_present(_render_job_template("sge.sh.j2"))
 
     def test_slurm_heartbeat_loop_disables_strict_mode(self):
         self._assert_heartbeat_loop_disables_strict_mode(

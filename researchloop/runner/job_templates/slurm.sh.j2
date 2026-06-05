@@ -68,9 +68,10 @@ run_step() {
     local output_file="$SPRINT_DIR/.researchloop/${step_name}_output.jsonl"
     local pgid_file="$SPRINT_DIR/.researchloop/${step_name}_pgid"
     local result_sentinel="$SPRINT_DIR/.researchloop/${step_name}_result_seen"
+    local error_marker="$SPRINT_DIR/.researchloop/${step_name}_error"
     # Reset per-step watchdog state and announce the active step to the
     # heartbeat loop.
-    rm -f "$pgid_file" "$result_sentinel"
+    rm -f "$pgid_file" "$result_sentinel" "$error_marker"
     echo "$step_name" > "$ACTIVE_STEP_FILE"
 
     # Run claude with streaming JSON output.
@@ -141,11 +142,39 @@ for line in sys.stdin:
         except OSError:
             pass
         result = evt.get('result', '') or ''
+        # A terminal result can still be an ERROR (API overload, max turns,
+        # exec error): is_error is true / subtype starts with 'error'. That is
+        # a FAILED step, not a success — record it and exit nonzero so run_step
+        # fails the step instead of reporting the sprint 'completed' with no
+        # report/summary output.
+        subtype = evt.get('subtype', '') or ''
+        if evt.get('is_error') or subtype.startswith('error'):
+            reason = subtype or 'error'
+            try:
+                with open('$error_marker', 'w') as ef:
+                    ef.write((reason + ': ' + result)[:2000])
+            except OSError:
+                pass
+            log.write(f'  ERROR: step failed ({reason}): {result[:200]}\n')
+            log.flush()
+            log.close()
+            sys.exit(1)
         log.write(f'  Done ({tool_count} tool calls, {len(result)} chars output)\n')
         log.flush()
 log.close()
 " || {
         local rc=$?
+        # A terminal result carrying is_error (e.g. API overload during the
+        # report/summarize step) means the step actually failed. The result
+        # sentinel still gets written for the watchdog, so check the error
+        # marker first — otherwise the sentinel would mask the failure as
+        # "complete" and the sprint would finish with no output.
+        if [ -f "$error_marker" ]; then
+            log "ERROR: Claude reported a terminal error on step $step_name"
+            cat "$error_marker" >> "$LOG_FILE" 2>/dev/null
+            rm -f "$ACTIVE_STEP_FILE"
+            return 1
+        fi
         # Treat as failure only if claude never emitted its result event. If
         # the sentinel exists, the work is done — the nonzero exit is just
         # the watchdog cleaning up a leaked Bash-tool subprocess.
