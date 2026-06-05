@@ -1362,3 +1362,27 @@ class TestLoopEdit:
             )
             assert resp.status_code == 303
             assert "/login" in resp.headers["location"]
+
+
+class TestLoopDetailEditUI:
+    """The loop detail page exposes the edit toggle + edit-safe refresh."""
+
+    async def test_edit_button_and_guarded_refresh(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, _ = _login_and_csrf(client, "secret")
+            await queries.create_auto_loop(orch.db, "loop-ui01", "test", 5)
+            resp = client.get(
+                "/dashboard/loops/loop-ui01",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            # Edit is toggled from the actions row, next to stop/resume.
+            assert "toggleEdit()" in resp.text
+            assert 'id="edit-panel"' in resp.text
+            # Auto-refresh is editing-aware, not an unconditional reload.
+            assert "_rlEditing" in resp.text
+            assert (
+                "setTimeout(function(){window.location.reload()},30000)"
+                not in resp.text
+            )
