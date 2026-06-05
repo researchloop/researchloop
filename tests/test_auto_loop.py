@@ -601,3 +601,113 @@ class TestAllowLoopGuard:
         ctrl = _make_controller(db_with_study, sample_config)
         loop_id = await ctrl.start("test-study", 2)
         assert loop_id.startswith("loop-")
+
+
+# ------------------------------------------------------------------
+# update_config (edit an existing loop)
+# ------------------------------------------------------------------
+
+
+class TestUpdateConfig:
+    """Editing a loop's prompt (context) and total sprint count."""
+
+    async def test_update_context(self, db_with_study, sample_config):
+        import json
+
+        ctrl = _make_controller(db_with_study, sample_config)
+        loop_id = await ctrl.start("test-study", count=3, context="original")
+
+        await ctrl.update_config(loop_id, context="new guidance")
+
+        loop = await queries.get_auto_loop(db_with_study, loop_id)
+        assert loop is not None
+        assert json.loads(loop["metadata_json"])["context"] == "new guidance"
+
+    async def test_update_context_preserves_other_metadata(
+        self, db_with_study, sample_config
+    ):
+        import json
+
+        ctrl = _make_controller(db_with_study, sample_config)
+        loop_id = await ctrl.start(
+            "test-study",
+            count=3,
+            context="original",
+            job_options={"gres": "gpu:2"},
+            time_limit="6:00:00",
+        )
+
+        await ctrl.update_config(loop_id, context="edited")
+
+        loop = await queries.get_auto_loop(db_with_study, loop_id)
+        meta = json.loads(loop["metadata_json"])
+        assert meta["context"] == "edited"
+        assert meta["job_options"] == {"gres": "gpu:2"}
+        assert meta["time_limit"] == "6:00:00"
+
+    async def test_empty_context_clears_it(self, db_with_study, sample_config):
+        import json
+
+        ctrl = _make_controller(db_with_study, sample_config)
+        loop_id = await ctrl.start("test-study", count=3, context="original")
+
+        await ctrl.update_config(loop_id, context="   ")
+
+        loop = await queries.get_auto_loop(db_with_study, loop_id)
+        assert "context" not in json.loads(loop["metadata_json"])
+
+    async def test_increase_total_count(self, db_with_study, sample_config):
+        ctrl = _make_controller(db_with_study, sample_config)
+        loop_id = await ctrl.start("test-study", count=3)
+
+        await ctrl.update_config(loop_id, total_count=10)
+
+        loop = await queries.get_auto_loop(db_with_study, loop_id)
+        assert loop["total_count"] == 10
+
+    async def test_decrease_total_count(self, db_with_study, sample_config):
+        ctrl = _make_controller(db_with_study, sample_config)
+        loop_id = await ctrl.start("test-study", count=10)
+
+        await ctrl.update_config(loop_id, total_count=4)
+
+        loop = await queries.get_auto_loop(db_with_study, loop_id)
+        assert loop["total_count"] == 4
+
+    async def test_count_below_completed_rejected(self, db_with_study, sample_config):
+        import pytest
+
+        ctrl = _make_controller(db_with_study, sample_config)
+        loop_id = await ctrl.start("test-study", count=10)
+        await queries.update_auto_loop(db_with_study, loop_id, completed_count=5)
+
+        with pytest.raises(ValueError, match="already-completed"):
+            await ctrl.update_config(loop_id, total_count=3)
+
+    async def test_count_below_one_rejected(self, db_with_study, sample_config):
+        import pytest
+
+        ctrl = _make_controller(db_with_study, sample_config)
+        loop_id = await ctrl.start("test-study", count=5)
+
+        with pytest.raises(ValueError, match="at least 1"):
+            await ctrl.update_config(loop_id, total_count=0)
+
+    async def test_unknown_loop_raises(self, db_with_study, sample_config):
+        import pytest
+
+        ctrl = _make_controller(db_with_study, sample_config)
+        with pytest.raises(ValueError, match="not found"):
+            await ctrl.update_config("loop-nope", context="x")
+
+    async def test_context_and_count_together(self, db_with_study, sample_config):
+        import json
+
+        ctrl = _make_controller(db_with_study, sample_config)
+        loop_id = await ctrl.start("test-study", count=3, context="orig")
+
+        await ctrl.update_config(loop_id, context="both", total_count=7)
+
+        loop = await queries.get_auto_loop(db_with_study, loop_id)
+        assert loop["total_count"] == 7
+        assert json.loads(loop["metadata_json"])["context"] == "both"

@@ -311,20 +311,19 @@ class SprintManager:
         # generator prompt so the job generates its own idea.
         is_loop_sprint = bool(sprint.get("loop_id"))
         if is_loop_sprint:
-            # Find the loop for extra context.
+            # Find the loop for extra context. Look it up by the sprint's
+            # loop_id (set before submission) rather than the loop's
+            # current_sprint_id, which isn't pointed at this sprint until
+            # after submission completes.
             loop_context = ""
-            all_loops = await queries.list_auto_loops(self.db)
-            for lp in all_loops:
-                if lp.get("current_sprint_id") == sprint_id:
-                    meta = lp.get("metadata_json")
-                    if meta:
-                        try:
-                            import json as _json
-
-                            loop_context = _json.loads(meta).get("context", "")
-                        except Exception:
-                            pass
-                    break
+            loop_row = await queries.get_auto_loop(self.db, sprint["loop_id"])
+            if loop_row:
+                meta = loop_row.get("metadata_json")
+                if meta:
+                    try:
+                        loop_context = json.loads(meta).get("context", "")
+                    except (json.JSONDecodeError, TypeError):
+                        pass
 
             # Collect previous summaries.
             prev_sprints = await queries.list_sprints(

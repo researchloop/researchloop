@@ -1303,3 +1303,62 @@ class TestClusterPresetsInForms:
             # The dropdown markup still exists, but the embedded payload is
             # an empty array, so the JS leaves the dropdown hidden.
             assert "var presets = [];" in resp.text
+
+
+class TestLoopEdit:
+    """POST /dashboard/loops/{id}/edit — edit prompt + sprint count."""
+
+    async def test_edit_updates_context_and_count(self):
+        import json
+
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            await queries.create_auto_loop(orch.db, "loop-edit01", "test", 5)
+
+            resp = client.post(
+                "/dashboard/loops/loop-edit01/edit",
+                data={
+                    "csrf_token": csrf,
+                    "context": "new guidance prompt",
+                    "count": "8",
+                },
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            loop = await queries.get_auto_loop(orch.db, "loop-edit01")
+            assert loop["total_count"] == 8
+            assert json.loads(loop["metadata_json"])["context"] == "new guidance prompt"
+
+    async def test_edit_invalid_count_redirects_with_error_and_no_change(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            await queries.create_auto_loop(orch.db, "loop-edit02", "test", 5)
+            await queries.update_auto_loop(orch.db, "loop-edit02", completed_count=3)
+
+            resp = client.post(
+                "/dashboard/loops/loop-edit02/edit",
+                data={"csrf_token": csrf, "context": "x", "count": "1"},
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert "error=" in resp.headers["location"]
+            # Atomic: neither count nor context changed.
+            loop = await queries.get_auto_loop(orch.db, "loop-edit02")
+            assert loop["total_count"] == 5
+            assert loop["metadata_json"] in (None, "", "{}") or (
+                "context" not in (loop["metadata_json"] or "")
+            )
+
+    async def test_edit_requires_auth(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            resp = client.post(
+                "/dashboard/loops/loop-x/edit",
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert "/login" in resp.headers["location"]

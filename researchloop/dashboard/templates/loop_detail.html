@@ -7,6 +7,7 @@
 {% endblock %}
 {% block content %}
 <h2>Loop {{ loop.id }}</h2>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
 <div class="card">
   <dl>
     <dt>Study</dt><dd><a href="/dashboard/studies/{{ loop.study_name }}">{{ loop.study_name }}</a></dd>
@@ -35,6 +36,26 @@
 <h3>Idea Generation Context</h3>
 <div class="card report-content">{{ context|markdown|safe }}</div>
 {% endif %}
+
+<details class="card"{% if error %} open{% endif %} style="margin-bottom:1rem">
+  <summary style="cursor:pointer">Edit loop</summary>
+  <form method="post" action="/dashboard/loops/{{ loop.id }}/edit" style="margin-top:0.75rem"
+        onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Saving...';">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-group">
+      <label for="context">Idea generation guidance <span class="dim">(the loop's prompt)</span></label>
+      <textarea name="context" id="context" rows="5" placeholder="e.g. Focus on X, avoid approach Y, build on results from previous sprints...">{{ context }}</textarea>
+    </div>
+    <div class="form-group">
+      <label for="count">Total sprints</label>
+      <input type="number" name="count" id="count" value="{{ loop.total_count }}" min="{{ loop.completed_count if loop.completed_count > 0 else 1 }}" style="width:90px">
+      <span class="dim" style="font-size:0.8rem">{{ loop.completed_count }} completed so far</span>
+    </div>
+    <button type="submit" class="btn btn-sm">Save changes</button>
+    <p class="dim" style="font-size:0.8rem;margin-top:0.5rem">Changes apply to the next sprint the loop generates; a sprint already running is unaffected.</p>
+  </form>
+</details>
+
 <h3>Sprints</h3>
 <table>
   <thead><tr><th>ID</th><th>Status</th><th>Idea</th><th>Summary</th><th>Created</th><th></th></tr></thead>

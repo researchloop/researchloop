@@ -338,6 +338,67 @@ class AutoLoopController:
         logger.info("Auto-loop %s stopped", loop_id)
 
     # ------------------------------------------------------------------
+    # Edit
+    # ------------------------------------------------------------------
+
+    async def update_config(
+        self,
+        loop_id: str,
+        *,
+        context: str | None = None,
+        total_count: int | None = None,
+    ) -> None:
+        """Edit an existing loop's idea-generation context and/or size.
+
+        *context* replaces the loop's idea-generation guidance (its
+        "prompt"); pass an empty string to clear it. *total_count* changes
+        how many sprints the loop runs -- it can be increased or decreased
+        while the loop is running, as long as it stays at or above the
+        number of sprints already completed.
+
+        Changes take effect on the next sprint the loop generates; a sprint
+        already in flight is unaffected. Raises ``ValueError`` for an
+        unknown loop or an invalid count.
+        """
+        loop = await queries.get_auto_loop(self.db, loop_id)
+        if loop is None:
+            raise ValueError(f"Auto-loop not found: {loop_id}")
+
+        updates: dict[str, object] = {}
+
+        if context is not None:
+            meta: dict[str, object] = {}
+            meta_str = loop.get("metadata_json")
+            if meta_str:
+                try:
+                    parsed = json.loads(meta_str)
+                    if isinstance(parsed, dict):
+                        meta = parsed
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            ctx = context.strip()
+            if ctx:
+                meta["context"] = ctx
+            else:
+                meta.pop("context", None)
+            updates["metadata_json"] = json.dumps(meta)
+
+        if total_count is not None:
+            if total_count < 1:
+                raise ValueError("total_count must be at least 1")
+            completed = loop.get("completed_count", 0)
+            if total_count < completed:
+                raise ValueError(
+                    f"total_count ({total_count}) cannot be below the number "
+                    f"of already-completed sprints ({completed})"
+                )
+            updates["total_count"] = total_count
+
+        if updates:
+            await queries.update_auto_loop(self.db, loop_id, **updates)
+            logger.info("Auto-loop %s config updated: %s", loop_id, list(updates))
+
+    # ------------------------------------------------------------------
     # Status
     # ------------------------------------------------------------------
 

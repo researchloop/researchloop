@@ -872,6 +872,21 @@ def _extract_job_script(ssh_mock: AsyncMock) -> str | None:
     return None
 
 
+def _extract_embedded_prompt(ssh_mock: AsyncMock, filename: str) -> str | None:
+    """Decode a prompt file embedded (as base64) inside the job script."""
+    import base64
+
+    script = _extract_job_script(ssh_mock)
+    if script is None:
+        return None
+    for line in script.split("\n"):
+        if filename in line and "base64 -d" in line:
+            b_start = line.index("'") + 1
+            b_end = line.index("'", b_start)
+            return base64.b64decode(line[b_start:b_end]).decode("utf-8")
+    return None
+
+
 class TestMergeJobOptions:
     def test_later_overrides_earlier(self):
         merged = _merge_job_options(
@@ -1218,3 +1233,44 @@ class TestSubmitSprintJobOptions:
         assert "--dangerously-skip-permissions" in script
         assert "--disallowedTools Task Monitor PushNotification" in script
         assert "RemoteTrigger" in script
+
+
+class TestLoopContextInIdeaPrompt:
+    """An auto-loop's context (prompt) is fed to the idea generator.
+
+    Regression guard: the lookup must use the sprint's loop_id, since the
+    loop's current_sprint_id isn't pointed at the sprint until after submit.
+    """
+
+    async def test_loop_context_included(self, db_with_study, tmp_path):
+        import json as _json
+
+        config = _make_config(tmp_path)
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+
+        await queries.create_auto_loop(db_with_study, "loop-ctx1", "test-study", 3)
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-ctx1",
+            metadata_json=_json.dumps({"context": "PRIORITIZE_FALSE_POSITIVES"}),
+        )
+
+        # Auto-loop sprint: idea None, loop_id set before submission.
+        sprint = await mgr.create_sprint("test-study", None)
+        await queries.update_sprint(db_with_study, sprint.id, loop_id="loop-ctx1")
+        await mgr.submit_sprint(sprint.id)
+
+        idea_prompt = _extract_embedded_prompt(ssh_mock, "prompt_generate_idea.md")
+        assert idea_prompt is not None
+        assert "PRIORITIZE_FALSE_POSITIVES" in idea_prompt

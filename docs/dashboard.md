@@ -88,6 +88,11 @@ The loop detail page (`/dashboard/loops/{id}`) shows:
 - Loop configuration (study, count, status, context)
 - All sprints belonging to the loop with links to their detail pages
 - Actions to stop or resume the loop
+- An **Edit loop** panel to change the idea-generation guidance (the loop's
+  prompt) and increase or decrease the total sprint count while the loop is
+  running. Edits apply to the next sprint the loop generates; a sprint already
+  in flight is unaffected. The count can't be set below the number of sprints
+  already completed.
 
 ## Refresh mechanism
 

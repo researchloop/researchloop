@@ -1505,6 +1505,7 @@ def add_dashboard_routes(
                 loop=loop,
                 sprints=loop_sprints,
                 context=context,
+                error=request.query_params.get("error"),
             ),
         )
 
@@ -1533,6 +1534,43 @@ def add_dashboard_routes(
             await orchestrator.auto_loop.resume(loop_id)
         except Exception as exc:
             logger.warning("Loop resume failed: %s", exc)
+        return RedirectResponse(
+            f"/dashboard/loops/{loop_id}",
+            status_code=303,
+        )
+
+    @app.post("/dashboard/loops/{loop_id}/edit")
+    async def dashboard_loop_edit(loop_id: str, request: Request):  # type: ignore[no-untyped-def]
+        """Edit a loop's idea-generation prompt and/or total sprint count."""
+        if redir := await _gate(request):
+            return redir
+        await _check_csrf(request)
+        assert orchestrator.auto_loop is not None
+
+        form = await request.form()
+        context = str(form.get("context", ""))
+        count_raw = str(form.get("count", "")).strip()
+        total_count: int | None = None
+        if count_raw:
+            try:
+                total_count = int(count_raw)
+            except ValueError:
+                total_count = None
+
+        try:
+            await orchestrator.auto_loop.update_config(
+                loop_id,
+                context=context,
+                total_count=total_count,
+            )
+        except Exception as exc:
+            logger.warning("Loop edit failed: %s", exc)
+            from urllib.parse import quote
+
+            return RedirectResponse(
+                f"/dashboard/loops/{loop_id}?error={quote(str(exc))}",
+                status_code=303,
+            )
         return RedirectResponse(
             f"/dashboard/loops/{loop_id}",
             status_code=303,
