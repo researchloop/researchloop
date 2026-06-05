@@ -25,6 +25,25 @@ CONFIG_SEARCH_PATHS = [
 
 
 @dataclass
+class ClusterPreset:
+    """A named bundle of resource settings for a cluster.
+
+    Presets prefill the sprint/loop/tweak forms (GPU, memory, CPUs,
+    time limit, and arbitrary extra scheduler options) so common
+    hardware setups (e.g. "H100 1 GPU", "CPU only") can be picked from
+    a dropdown instead of typed by hand. The values map directly onto
+    the form fields; selecting a preset is equivalent to typing them.
+    """
+
+    name: str
+    gpu: str = ""  # -> gres
+    mem: str = ""
+    cpus: str = ""  # -> cpus-per-task
+    time: str = ""  # -> per-sprint time limit, e.g. "8:00:00"
+    extra_options: str = ""  # free-text additional scheduler options
+
+
+@dataclass
 class ClusterConfig:
     """Configuration for a compute cluster."""
 
@@ -41,6 +60,7 @@ class ClusterConfig:
     claude_command: str = "claude --dangerously-skip-permissions"
     context: str = ""
     context_paths: list[str] = field(default_factory=list)
+    presets: list[ClusterPreset] = field(default_factory=list)
 
 
 @dataclass
@@ -107,6 +127,30 @@ class Config:
     orchestrator_url: str | None = None
 
 
+def _parse_preset(data: dict) -> ClusterPreset:
+    """Parse a single ``[[cluster.preset]]`` table.
+
+    ``gpu``/``gres`` and ``cpus``/``cpus-per-task`` are accepted as
+    aliases so the TOML can use either the friendly name or the raw
+    SLURM key. ``time``/``time_limit`` likewise.
+    """
+
+    def _get(*keys: str) -> str:
+        for k in keys:
+            if k in data and data[k] is not None:
+                return str(data[k])
+        return ""
+
+    return ClusterPreset(
+        name=str(data["name"]),
+        gpu=_get("gpu", "gres"),
+        mem=_get("mem"),
+        cpus=_get("cpus", "cpus-per-task"),
+        time=_get("time", "time_limit"),
+        extra_options=_get("extra_options", "extra"),
+    )
+
+
 def _parse_cluster(data: dict) -> ClusterConfig:
     ctx = data.get("context_paths", [])
     if isinstance(ctx, str):
@@ -128,6 +172,7 @@ def _parse_cluster(data: dict) -> ClusterConfig:
         ),
         context=data.get("context", ""),
         context_paths=ctx,
+        presets=[_parse_preset(p) for p in data.get("preset", [])],
     )
 
 

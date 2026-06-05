@@ -23,6 +23,12 @@
     </div>
     <details style="margin-bottom:0.75rem">
       <summary class="dim" style="cursor:pointer;font-size:0.85rem">Resource settings</summary>
+      <div id="preset-wrap" class="form-group" style="margin:0.5rem 0 0;display:none">
+        <label for="preset" style="font-size:0.8rem">Preset</label>
+        <select id="preset" onchange="applyPreset()" style="font-size:0.85rem;max-width:240px">
+          <option value="">Custom…</option>
+        </select>
+      </div>
       <div style="display:flex;gap:0.75rem;margin-top:0.5rem;flex-wrap:wrap">
         <div class="form-group" style="margin:0">
           <label for="gpu" style="font-size:0.8rem">GPU</label>
@@ -51,6 +57,31 @@
 </div>
 <script>
 var studyDefaults={{ study_defaults_json|safe }};
+function currentPresets(){
+  var s=document.getElementById('study_name').value;
+  return (studyDefaults[s]||{}).presets||[];
+}
+function rebuildPresets(){
+  var presets=currentPresets();
+  var sel=document.getElementById('preset');
+  var wrap=document.getElementById('preset-wrap');
+  sel.innerHTML='<option value="">Custom…</option>';
+  presets.forEach(function(p,i){
+    var o=document.createElement('option');o.value=String(i);o.textContent=p.name;sel.appendChild(o);
+  });
+  wrap.style.display=presets.length?'':'none';
+}
+function applyPreset(){
+  var sel=document.getElementById('preset');
+  if(sel.value==='')return;
+  var p=currentPresets()[parseInt(sel.value,10)];
+  if(!p)return;
+  document.getElementById('gpu').value=p.gpu||'';
+  document.getElementById('mem').value=p.mem||'';
+  document.getElementById('cpus').value=p.cpus||'';
+  document.getElementById('time_limit').value=p.time||'';
+  document.getElementById('extra_options').value=p.extra||'';
+}
 function updateDefaults(){
   var s=document.getElementById('study_name').value;
   var d=studyDefaults[s]||{};
@@ -59,6 +90,7 @@ function updateDefaults(){
   document.getElementById('cpus').value=d.cpus||'';
   document.getElementById('time_limit').value=d.time||'';
   document.getElementById('extra_options').value=d.extra||'';
+  rebuildPresets();
 }
 updateDefaults();
 </script>

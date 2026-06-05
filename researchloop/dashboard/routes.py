@@ -17,7 +17,7 @@ from fastapi.responses import (
 )
 from starlette.templating import Jinja2Templates
 
-from researchloop.core.config import StudyConfig
+from researchloop.core.config import ClusterConfig, StudyConfig
 from researchloop.dashboard.auth import (
     SESSION_COOKIE,
     SessionManager,
@@ -85,6 +85,28 @@ def _format_extra_options(opts: dict[str, str]) -> str:
     return "\n".join(
         f"--{k}={v}" for k, v in opts.items() if k not in _KNOWN_RESOURCE_KEYS and v
     )
+
+
+def _presets_payload(cluster_cfg: ClusterConfig | None) -> list[dict[str, str]]:
+    """Build the JS-friendly preset list for a cluster's resource presets.
+
+    Each entry mirrors the resource form fields so the dropdown can
+    prefill them directly. Returns an empty list when the cluster has
+    no presets (or is unknown).
+    """
+    if cluster_cfg is None:
+        return []
+    return [
+        {
+            "name": p.name,
+            "gpu": p.gpu,
+            "mem": p.mem,
+            "cpus": p.cpus,
+            "time": p.time,
+            "extra": p.extra_options,
+        }
+        for p in cluster_cfg.presets
+    ]
 
 
 # Add a markdown filter for rendering reports.
@@ -633,15 +655,17 @@ def add_dashboard_routes(
         sprints = await queries.list_sprints(orchestrator.db, study_name=name, limit=50)
         prefill_idea = request.query_params.get("idea", "")
 
-        # Resolve default job_options (cluster + study merged) and the
-        # default per-sprint time limit.
+        # Resolve default job_options (cluster + study merged), the
+        # default per-sprint time limit, and the cluster's resource presets.
         default_opts: dict[str, str] = {}
         default_time_limit = "8:00:00"
+        study_cluster: ClusterConfig | None = None
         for c in orchestrator.config.clusters:
             for s in orchestrator.config.studies:
                 if s.name == name and s.cluster == c.name:
                     default_opts = {**c.job_options, **s.job_options}
                     default_time_limit = f"{s.max_sprint_duration_hours}:00:00"
+                    study_cluster = c
                     break
 
         yaml_json = study.get("yaml_config_json")
@@ -665,6 +689,7 @@ def add_dashboard_routes(
                 default_cpus=default_opts.get("cpus-per-task", ""),
                 default_time_limit=default_time_limit,
                 default_extra_options=_format_extra_options(default_opts),
+                presets_json=json.dumps(_presets_payload(study_cluster)),
                 source=source,
                 is_ui_edited=is_ui_edited,
                 has_yaml_version=has_yaml_version,
@@ -777,7 +802,7 @@ def add_dashboard_routes(
 
         # Build per-study default job options for the form JS.
         cluster_map = {c.name: c for c in orchestrator.config.clusters}
-        study_defaults: dict[str, dict[str, str]] = {}
+        study_defaults: dict[str, dict[str, Any]] = {}
         for s in orchestrator.config.studies:
             if s.name in study_names:
                 c = cluster_map.get(s.cluster)
@@ -788,6 +813,7 @@ def add_dashboard_routes(
                     "cpus": opts.get("cpus-per-task", ""),
                     "time": f"{s.max_sprint_duration_hours}:00:00",
                     "extra": _format_extra_options(opts),
+                    "presets": _presets_payload(c),
                 }
 
         return templates.TemplateResponse(
@@ -847,15 +873,18 @@ def add_dashboard_routes(
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        # Resolve default job_options and time limit for tweak settings.
+        # Resolve default job_options, time limit, and cluster presets
+        # for tweak settings.
         default_opts: dict[str, str] = {}
         default_time_limit = "8:00:00"
+        study_cluster: ClusterConfig | None = None
         study_name = sprint["study_name"]
         for c in orchestrator.config.clusters:
             for s in orchestrator.config.studies:
                 if s.name == study_name and s.cluster == c.name:
                     default_opts = {**c.job_options, **s.job_options}
                     default_time_limit = f"{s.max_sprint_duration_hours}:00:00"
+                    study_cluster = c
                     break
 
         return templates.TemplateResponse(
@@ -878,6 +907,7 @@ def add_dashboard_routes(
                 default_cpus=default_opts.get("cpus-per-task", ""),
                 default_time_limit=default_time_limit,
                 default_extra_options=_format_extra_options(default_opts),
+                presets_json=json.dumps(_presets_payload(study_cluster)),
                 submitted_job_options=submitted_job_options,
                 submitted_time_limit=submitted_time_limit,
             ),
@@ -1411,7 +1441,7 @@ def add_dashboard_routes(
 
         # Build per-study default job options for the form.
         cluster_map = {c.name: c for c in orchestrator.config.clusters}
-        study_defaults: dict[str, dict[str, str]] = {}
+        study_defaults: dict[str, dict[str, Any]] = {}
         for s in orchestrator.config.studies:
             if s.name in loopable:
                 c = cluster_map.get(s.cluster)
@@ -1422,6 +1452,7 @@ def add_dashboard_routes(
                     "cpus": opts.get("cpus-per-task", ""),
                     "time": f"{s.max_sprint_duration_hours}:00:00",
                     "extra": _format_extra_options(opts),
+                    "presets": _presets_payload(c),
                 }
 
         return templates.TemplateResponse(

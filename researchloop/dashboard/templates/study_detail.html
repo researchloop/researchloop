@@ -49,6 +49,12 @@
     </div>
     <details style="margin-bottom:0.75rem">
       <summary class="dim" style="cursor:pointer;font-size:0.85rem">Resource settings</summary>
+      <div id="preset-wrap" class="form-group" style="margin:0.5rem 0 0;display:none">
+        <label for="preset" style="font-size:0.8rem">Preset</label>
+        <select id="preset" style="font-size:0.85rem;max-width:240px">
+          <option value="">Custom…</option>
+        </select>
+      </div>
       <div style="display:flex;gap:0.75rem;margin-top:0.5rem;flex-wrap:wrap">
         <div class="form-group" style="margin:0">
           <label for="gpu" style="font-size:0.8rem">GPU</label>
@@ -75,6 +81,31 @@
     <button type="submit" class="btn">Submit sprint</button>
   </form>
 </div>
+<script>
+(function(){
+  var presets = {{ presets_json|safe }};
+  var sel = document.getElementById('preset');
+  var wrap = document.getElementById('preset-wrap');
+  if(!sel || !presets.length) return;
+  presets.forEach(function(p, i){
+    var o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = p.name;
+    sel.appendChild(o);
+  });
+  wrap.style.display = '';
+  sel.addEventListener('change', function(){
+    if(sel.value === '') return;
+    var p = presets[parseInt(sel.value, 10)];
+    if(!p) return;
+    document.getElementById('gpu').value = p.gpu || '';
+    document.getElementById('mem').value = p.mem || '';
+    document.getElementById('cpus').value = p.cpus || '';
+    document.getElementById('time_limit').value = p.time || '';
+    document.getElementById('extra_options').value = p.extra || '';
+  });
+})();
+</script>
 
 <h3>Recent sprints</h3>
 <table>

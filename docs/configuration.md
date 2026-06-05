@@ -49,6 +49,22 @@ gres = "gpu:l40:1"
 cpus-per-task = "8"
 mem = "64G"
 
+# Resource presets: named bundles that appear as a "Preset" dropdown in the
+# sprint/loop/tweak forms and prefill the resource fields with one click.
+# Add as many [[cluster.preset]] tables as you like per cluster.
+[[cluster.preset]]
+name = "H100 1 GPU"
+gpu = "gpu:h100:1"                       # alias: gres
+mem = "128G"
+cpus = "16"                              # alias: cpus-per-task
+time = "8:00:00"                         # alias: time_limit
+extra_options = "--partition=gpu"        # alias: extra
+
+[[cluster.preset]]
+name = "CPU only"                        # omitted fields are blanked when applied,
+cpus = "8"                               # so this clears the cluster's default GPU
+mem = "32G"
+
 
 # ── Study configuration ─────────────────────────────────────────
 
@@ -174,3 +190,32 @@ Common SLURM options:
 | `cpus-per-task` | `8` | CPU cores |
 | `partition` | `gpu` | SLURM partition |
 | `qos` | `high` | Quality of service |
+
+## Resource presets
+
+Each cluster can define named **resource presets** via `[[cluster.preset]]`
+tables. Presets show up as a **Preset** dropdown in the sprint, auto-loop, and
+tweak forms; picking one prefills the GPU, memory, CPU, time-limit, and
+additional-options fields so you don't have to type common hardware setups by
+hand (e.g. "H100 1 GPU", "L40S 2 GPUs", "CPU only").
+
+```toml
+[[cluster.preset]]
+name = "H100 1 GPU"
+gpu = "gpu:h100:1"            # alias: gres
+mem = "128G"
+cpus = "16"                  # alias: cpus-per-task
+time = "8:00:00"             # alias: time_limit
+extra_options = "--partition=gpu"   # alias: extra
+
+[[cluster.preset]]
+name = "CPU only"
+cpus = "8"
+mem = "32G"
+```
+
+Presets are **not** a merge layer — selecting one simply fills the form fields,
+exactly as if you had typed the values. Any field you omit is left blank when
+the preset is applied, so a "CPU only" preset (no `gpu`) clears the cluster's
+default GPU. You can still edit the fields afterward; switching the dropdown
+back to "Custom…" leaves whatever you've typed untouched.

@@ -198,3 +198,77 @@ class TestContextConfig:
         config = load_config(str(p))
         assert "Line one" in config.clusters[0].context
         assert "Line two" in config.clusters[0].context
+
+
+class TestClusterPresets:
+    """Parsing of [[cluster.preset]] resource presets."""
+
+    def test_presets_parsed(self, tmp_path):
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n\n'
+            "[[cluster.preset]]\n"
+            'name = "H100 1 GPU"\n'
+            'gres = "gpu:h100:1"\n'
+            'mem = "128G"\n'
+            'cpus = "16"\n'
+            'time = "8:00:00"\n'
+            'extra_options = "--partition=gpu"\n\n'
+            "[[cluster.preset]]\n"
+            'name = "CPU only"\n'
+            'cpus = "8"\n'
+            'mem = "32G"\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        presets = config.clusters[0].presets
+        assert len(presets) == 2
+
+        h100 = presets[0]
+        assert h100.name == "H100 1 GPU"
+        assert h100.gpu == "gpu:h100:1"
+        assert h100.mem == "128G"
+        assert h100.cpus == "16"
+        assert h100.time == "8:00:00"
+        assert h100.extra_options == "--partition=gpu"
+
+        cpu = presets[1]
+        assert cpu.name == "CPU only"
+        assert cpu.cpus == "8"
+        assert cpu.mem == "32G"
+        # Unset fields default to empty strings (CPU-only clears the GPU).
+        assert cpu.gpu == ""
+        assert cpu.time == ""
+        assert cpu.extra_options == ""
+
+    def test_no_presets_defaults_empty(self, tmp_path):
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        assert config.clusters[0].presets == []
+
+    def test_preset_field_aliases(self, tmp_path):
+        """gpu/gres, cpus/cpus-per-task, time/time_limit, extra/extra_options."""
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n\n'
+            "[[cluster.preset]]\n"
+            'name = "Aliased"\n'
+            'gpu = "gpu:1"\n'
+            '"cpus-per-task" = "4"\n'
+            'time_limit = "2:00:00"\n'
+            'extra = "--qos=high"\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        preset = config.clusters[0].presets[0]
+        assert preset.gpu == "gpu:1"
+        assert preset.cpus == "4"
+        assert preset.time == "2:00:00"
+        assert preset.extra_options == "--qos=high"

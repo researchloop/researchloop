@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from researchloop.core.config import (
     ClusterConfig,
+    ClusterPreset,
     Config,
     DashboardConfig,
     StudyConfig,
@@ -1207,3 +1208,98 @@ class TestSprintSubmissionExtraOptions:
                 assert kwargs["job_options"]["partition"] == "gpu"
                 assert kwargs["job_options"]["qos"] == "high"
                 assert kwargs["job_options"]["gres"] == "gpu:1"
+
+
+def _make_app_with_presets(
+    password: str = "secret",
+) -> tuple[TestClient, str]:
+    """App whose cluster defines two resource presets."""
+    config = Config(
+        studies=[
+            StudyConfig(name="test", cluster="hpc", sprints_dir="./sp"),
+        ],
+        clusters=[
+            ClusterConfig(
+                name="hpc",
+                host="login.hpc.edu",
+                scheduler_type="slurm",
+                presets=[
+                    ClusterPreset(
+                        name="H100 1 GPU",
+                        gpu="gpu:h100:1",
+                        mem="128G",
+                        cpus="16",
+                        time="8:00:00",
+                        extra_options="--partition=gpu",
+                    ),
+                    ClusterPreset(name="CPU only", cpus="8", mem="32G"),
+                ],
+            ),
+        ],
+        db_path=":memory:",
+        artifact_dir=tempfile.mkdtemp(),
+        shared_secret="test-key",
+        dashboard=DashboardConfig(password_hash=hash_password(password)),
+    )
+    orch = Orchestrator(config)
+    return TestClient(create_app(orch)), password
+
+
+class TestClusterPresetsInForms:
+    """Cluster presets are surfaced to the sprint-creation forms."""
+
+    def test_study_detail_embeds_presets(self):
+        client, password = _make_app_with_presets()
+        with client:
+            login = client.post(
+                "/dashboard/login",
+                data={"password": password},
+                follow_redirects=False,
+            )
+            cookie = login.cookies.get(SESSION_COOKIE)
+            resp = client.get(
+                "/dashboard/studies/test",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            # Preset names + values are embedded for the dropdown JS.
+            assert "H100 1 GPU" in resp.text
+            assert "CPU only" in resp.text
+            assert "gpu:h100:1" in resp.text
+            assert 'id="preset"' in resp.text
+
+    def test_sprints_page_study_defaults_include_presets(self):
+        client, password = _make_app_with_presets()
+        with client:
+            login = client.post(
+                "/dashboard/login",
+                data={"password": password},
+                follow_redirects=False,
+            )
+            cookie = login.cookies.get(SESSION_COOKIE)
+            resp = client.get(
+                "/dashboard/sprints",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            assert "H100 1 GPU" in resp.text
+            assert "applyPreset()" in resp.text
+
+    def test_no_presets_hides_dropdown_data(self):
+        # Default _make_app cluster has no presets -> empty preset payload.
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            login = client.post(
+                "/dashboard/login",
+                data={"password": "secret"},
+                follow_redirects=False,
+            )
+            cookie = login.cookies.get(SESSION_COOKIE)
+            resp = client.get(
+                "/dashboard/studies/test",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            # The dropdown markup still exists, but the embedded payload is
+            # an empty array, so the JS leaves the dropdown hidden.
+            assert "var presets = [];" in resp.text

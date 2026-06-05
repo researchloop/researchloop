@@ -35,6 +35,27 @@ max_concurrent_jobs = 4
 # CUDA_VISIBLE_DEVICES = "0,1"
 # ANTHROPIC_API_KEY = "sk-..."  # only if not using `researchloop login`
 
+# Resource presets: named bundles of resource settings that show up as a
+# "Preset" dropdown in the sprint/loop/tweak forms and prefill the GPU,
+# memory, CPU, time-limit, and additional-options fields with one click.
+# Define as many [[cluster.preset]] tables as you like per cluster.
+# Fields: gpu (alias: gres), mem, cpus (alias: cpus-per-task),
+#         time (alias: time_limit), extra_options (alias: extra).
+# Any field you omit is left blank when the preset is applied -- so a
+# "CPU only" preset with no gpu clears the cluster's default GPU.
+# [[cluster.preset]]
+# name = "H100 1 GPU"
+# gpu = "gpu:h100:1"
+# mem = "128G"
+# cpus = "16"
+# time = "8:00:00"
+# extra_options = "--partition=gpu"
+#
+# [[cluster.preset]]
+# name = "CPU only"
+# cpus = "8"
+# mem = "32G"
+
 # ---------------------------------------------------------------------------
 # Studies
 # ---------------------------------------------------------------------------
