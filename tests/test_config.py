@@ -289,13 +289,17 @@ class TestDefaultClaudeCommand:
             "CronCreate",
             "CronList",
             "CronDelete",
-            "CronUpdate",
             "AskUserQuestion",
             "EnterPlanMode",
             "ExitPlanMode",
             "RemoteTrigger",
         ]:
             assert tool in DEFAULT_CLAUDE_COMMAND
+
+    def test_excludes_nonexistent_cron_update_tool(self):
+        # CronUpdate is not a real tool; listing it makes the CLI print an
+        # error on startup, which is confusing in the sprint logs.
+        assert "CronUpdate" not in DEFAULT_CLAUDE_COMMAND
 
     def test_cluster_without_override_uses_default(self, tmp_path):
         p = tmp_path / "researchloop.toml"

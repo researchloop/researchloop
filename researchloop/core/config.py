@@ -33,7 +33,7 @@ CONFIG_SEARCH_PATHS = [
 DEFAULT_CLAUDE_COMMAND = (
     "claude --dangerously-skip-permissions "
     "--disallowedTools Task Monitor PushNotification "
-    "CronCreate CronList CronDelete CronUpdate "
+    "CronCreate CronList CronDelete "
     "AskUserQuestion EnterPlanMode ExitPlanMode RemoteTrigger"
 )
 
