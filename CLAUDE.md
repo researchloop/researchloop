@@ -80,16 +80,20 @@ researchloop/
     pipeline.py         — Pipeline class (runs the multi-step research pipeline)
     claude.py           — run_claude() wrapper + render_template()
     upload.py           — upload_artifacts(), send_webhook(), send_heartbeat()
-    templates/          — 6 Jinja2 prompt templates:
+    templates/          — 7 Jinja2 prompt templates + 1 shared partial:
       research_sprint.md.j2   — main research prompt (includes progress.md + output.log instructions)
       red_team.md.j2          — critique/red-team prompt
       fix_issues.md.j2        — fix prompt after red-team
       report.md.j2            — comprehensive report generation
       summarizer.md.j2        — short summary for notifications
       idea_generator.md.j2    — next idea generation for auto-loops
-    job_templates/      — 2 job script templates:
+      tweak.md.j2             — quick-tweak prompt for a finished sprint
+      _long_running_commands.md.j2 — shared partial: how to run long commands without losing work (24h Bash timeout, foreground-or-joined-background, no detach); {% include %}'d by every prompt above
+    job_templates/      — 4 job script templates:
       slurm.sh.j2             — self-contained SLURM job script (includes stream-json processing, heartbeat loop, prompt embedding)
       sge.sh.j2               — SGE equivalent
+      slurm_tweak.sh.j2       — SLURM job script for quick tweaks (tweak → report)
+      sge_tweak.sh.j2         — SGE equivalent
   comms/
     __init__.py
     base.py             — BaseNotifier ABC (notify_sprint_started/completed/failed)

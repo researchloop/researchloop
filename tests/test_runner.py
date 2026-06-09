@@ -123,13 +123,13 @@ class TestRenderTemplate:
         )
         assert "progress.md" in output
 
-    def test_long_running_guidance_shared_across_command_prompts(self):
+    def test_long_running_guidance_shared_across_every_prompt(self):
         """The long-running-command guidance lives in one partial
-        (_long_running_commands.md.j2) that every prompt where Claude runs
-        commands includes, so the rules can't drift between steps. Each rendered
-        prompt must inline the partial (no raw Jinja include tag left behind)
-        and carry its key rules: raised 24h timeout, foreground-or-joined-
-        background, and the shell-level detach ban."""
+        (_long_running_commands.md.j2) that EVERY pipeline prompt includes, so
+        the rules can't drift between steps. Each rendered prompt must inline the
+        partial (no raw Jinja include tag left behind) and carry its key rules:
+        raised 24h timeout, foreground-or-joined-background, and the shell-level
+        detach ban."""
         rendered = {
             "research_sprint.md.j2": render_template(
                 "research_sprint.md.j2",
@@ -144,6 +144,10 @@ class TestRenderTemplate:
             "report.md.j2": render_template("report.md.j2", idea="test idea"),
             "tweak.md.j2": render_template(
                 "tweak.md.j2", instruction="make the plot bigger"
+            ),
+            "summarizer.md.j2": render_template("summarizer.md.j2"),
+            "idea_generator.md.j2": render_template(
+                "idea_generator.md.j2", study_context="ctx", previous_sprints=[]
             ),
         }
         for name, output in rendered.items():
@@ -164,15 +168,14 @@ class TestRenderTemplate:
             assert "setsid" in output, name
             assert "disown" in output, name
 
-    def test_summarizer_and_idea_generator_omit_long_running_guidance(self):
-        """summarizer and idea_generator don't run commands (idea_generator must
-        output only the idea text), so they deliberately skip the partial."""
-        summ = render_template("summarizer.md.j2")
-        idea = render_template(
+    def test_idea_generator_keeps_output_only_instruction_last(self):
+        """idea_generator's output is captured verbatim into idea.txt, so the
+        long-running partial must sit ABOVE the instructions — the dominant
+        'output ONLY the idea text' line has to remain the final instruction."""
+        output = render_template(
             "idea_generator.md.j2", study_context="ctx", previous_sprints=[]
         )
-        assert "86400000" not in summ
-        assert "86400000" not in idea
+        assert output.index("86400000") < output.index("Output ONLY the idea text")
 
     def test_red_team_template(self):
         output = render_template(
