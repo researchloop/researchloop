@@ -27,6 +27,10 @@ export PATH="$HOME/.local/bin:$HOME/.claude/bin:$PATH"
 export {{ key }}="{{ value }}"
 {% endfor %}
 
+# Raise Claude's Bash tool timeout ceiling (default 10m) to 24h so long-running
+# research commands aren't killed mid-execution.
+export BASH_MAX_TIMEOUT_MS=86400000
+
 SPRINT_ID="{{ sprint_id }}"
 STUDY_NAME="{{ study_name }}"
 SPRINT_DIR="{{ working_dir }}/{{ sprint_dirname }}"

@@ -121,23 +121,55 @@ class TestRenderTemplate:
         )
         assert "progress.md" in output
 
-    def test_research_template_forbids_backgrounding(self):
-        """claude -p is one-shot — backgrounded subprocesses get orphaned and
-        killed by the runner's pipeline-cleanup watchdog. The template must
-        tell claude not to use run_in_background or shell-level detach."""
+    def test_research_template_long_running_command_guidance(self):
+        """claude -p is one-shot — any task still running when the turn ends is
+        killed. The template allows long foreground calls OR background work,
+        but background work must end with a blocking join, and shell-level
+        detach (nohup/setsid/disown/bare &) is always banned."""
         output = render_template(
             "research_sprint.md.j2",
             study_context="Study context",
             idea="test idea",
             sprint_dir="/tmp/sprint",
         )
-        assert "run_in_background" in output
-        assert "nohup" in output
         assert "one-shot" in output
+        # Both run patterns are described.
+        assert "Option A" in output
+        assert "Option B" in output
+        # Background is allowed but requires a mandatory blocking join.
+        assert "run_in_background" in output
+        assert "wait" in output
+        assert "sentinel" in output
+        # Shell-level detach is still banned outright.
+        assert "nohup" in output
+        assert "setsid" in output
+        assert "disown" in output
 
-    def test_fix_template_forbids_backgrounding(self):
+    def test_research_template_allows_long_bash_timeout(self):
+        """Long training/eval commands run with a raised per-call timeout
+        (up to 24h)."""
+        output = render_template(
+            "research_sprint.md.j2",
+            study_context="Study context",
+            idea="test idea",
+            sprint_dir="/tmp/sprint",
+        )
+        assert "timeout" in output
+        assert "86400000" in output
+        assert "24 hours" in output
+
+    def test_fix_template_long_running_command_guidance(self):
+        """The fix step re-runs training/eval — it must point at the same
+        foreground-or-joined-background patterns and ban shell-level detach."""
         output = render_template("fix_issues.md.j2", round_number=1)
         assert "run_in_background" in output
+        assert "wait" in output
+        assert "nohup" in output
+
+    def test_fix_template_allows_long_bash_timeout(self):
+        output = render_template("fix_issues.md.j2", round_number=1)
+        assert "timeout" in output
+        assert "86400000" in output
 
     def test_red_team_template(self):
         output = render_template(
@@ -279,3 +311,22 @@ class TestJobScriptWatchdog:
         self._assert_heartbeat_loop_disables_strict_mode(
             _render_job_template("sge.sh.j2")
         )
+
+    def _assert_bash_timeout_raised(self, script: str) -> None:
+        # Claude's Bash tool defaults to a 10m timeout ceiling, which kills
+        # long-running research commands mid-execution. The job script must
+        # raise it to 24h before any claude invocation.
+        assert "export BASH_MAX_TIMEOUT_MS=86400000" in script
+        # The export must come before the first claude invocation so every
+        # step (including the inline generate_idea step) inherits it.
+        timeout_idx = script.index("BASH_MAX_TIMEOUT_MS")
+        claude_idx = script.index("$CLAUDE_CMD")
+        assert timeout_idx < claude_idx, (
+            "BASH_MAX_TIMEOUT_MS must be exported before claude is run"
+        )
+
+    def test_slurm_template_raises_bash_timeout(self):
+        self._assert_bash_timeout_raised(_render_job_template("slurm.sh.j2"))
+
+    def test_sge_template_raises_bash_timeout(self):
+        self._assert_bash_timeout_raised(_render_job_template("sge.sh.j2"))
