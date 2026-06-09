@@ -18,9 +18,11 @@ def _render_job_template(name: str) -> str:
     )
     return env.get_template(name).render(
         sprint_id="sp-test",
+        tweak_id="tw-test",
         study_name="study",
         idea="test idea",
         sprint_dirname="sp-test-dir",
+        sprint_dir="/work/sp-test-dir",
         job_name="rl-sp-test",
         working_dir="/work",
         time_limit="8:00:00",
@@ -121,55 +123,56 @@ class TestRenderTemplate:
         )
         assert "progress.md" in output
 
-    def test_research_template_long_running_command_guidance(self):
-        """claude -p is one-shot — any task still running when the turn ends is
-        killed. The template allows long foreground calls OR background work,
-        but background work must end with a blocking join, and shell-level
-        detach (nohup/setsid/disown/bare &) is always banned."""
-        output = render_template(
-            "research_sprint.md.j2",
-            study_context="Study context",
-            idea="test idea",
-            sprint_dir="/tmp/sprint",
+    def test_long_running_guidance_shared_across_command_prompts(self):
+        """The long-running-command guidance lives in one partial
+        (_long_running_commands.md.j2) that every prompt where Claude runs
+        commands includes, so the rules can't drift between steps. Each rendered
+        prompt must inline the partial (no raw Jinja include tag left behind)
+        and carry its key rules: raised 24h timeout, foreground-or-joined-
+        background, and the shell-level detach ban."""
+        rendered = {
+            "research_sprint.md.j2": render_template(
+                "research_sprint.md.j2",
+                study_context="Study context",
+                idea="test idea",
+                sprint_dir="/tmp/sprint",
+            ),
+            "fix_issues.md.j2": render_template("fix_issues.md.j2", round_number=1),
+            "red_team.md.j2": render_template(
+                "red_team.md.j2", idea="test idea", round_number=1, max_rounds=3
+            ),
+            "report.md.j2": render_template("report.md.j2", idea="test idea"),
+            "tweak.md.j2": render_template(
+                "tweak.md.j2", instruction="make the plot bigger"
+            ),
+        }
+        for name, output in rendered.items():
+            # The include must have resolved — no raw Jinja tag left behind.
+            assert "{% include" not in output, name
+            # Sentinel content unique to the partial.
+            assert "one-shot" in output, name
+            assert "86400000" in output, name
+            assert "24 hours" in output, name
+            assert "Option A" in output, name
+            assert "Option B" in output, name
+            # Background is allowed but requires a mandatory blocking join.
+            assert "run_in_background" in output, name
+            assert "wait" in output, name
+            assert "results/<job>.done" in output, name
+            # Shell-level detach stays banned outright.
+            assert "nohup" in output, name
+            assert "setsid" in output, name
+            assert "disown" in output, name
+
+    def test_summarizer_and_idea_generator_omit_long_running_guidance(self):
+        """summarizer and idea_generator don't run commands (idea_generator must
+        output only the idea text), so they deliberately skip the partial."""
+        summ = render_template("summarizer.md.j2")
+        idea = render_template(
+            "idea_generator.md.j2", study_context="ctx", previous_sprints=[]
         )
-        assert "one-shot" in output
-        # Both run patterns are described.
-        assert "Option A" in output
-        assert "Option B" in output
-        # Background is allowed but requires a mandatory blocking join.
-        assert "run_in_background" in output
-        assert "wait" in output
-        assert "sentinel" in output
-        # Shell-level detach is still banned outright.
-        assert "nohup" in output
-        assert "setsid" in output
-        assert "disown" in output
-
-    def test_research_template_allows_long_bash_timeout(self):
-        """Long training/eval commands run with a raised per-call timeout
-        (up to 24h)."""
-        output = render_template(
-            "research_sprint.md.j2",
-            study_context="Study context",
-            idea="test idea",
-            sprint_dir="/tmp/sprint",
-        )
-        assert "timeout" in output
-        assert "86400000" in output
-        assert "24 hours" in output
-
-    def test_fix_template_long_running_command_guidance(self):
-        """The fix step re-runs training/eval — it must point at the same
-        foreground-or-joined-background patterns and ban shell-level detach."""
-        output = render_template("fix_issues.md.j2", round_number=1)
-        assert "run_in_background" in output
-        assert "wait" in output
-        assert "nohup" in output
-
-    def test_fix_template_allows_long_bash_timeout(self):
-        output = render_template("fix_issues.md.j2", round_number=1)
-        assert "timeout" in output
-        assert "86400000" in output
+        assert "86400000" not in summ
+        assert "86400000" not in idea
 
     def test_red_team_template(self):
         output = render_template(
@@ -330,3 +333,9 @@ class TestJobScriptWatchdog:
 
     def test_sge_template_raises_bash_timeout(self):
         self._assert_bash_timeout_raised(_render_job_template("sge.sh.j2"))
+
+    def test_slurm_tweak_template_raises_bash_timeout(self):
+        self._assert_bash_timeout_raised(_render_job_template("slurm_tweak.sh.j2"))
+
+    def test_sge_tweak_template_raises_bash_timeout(self):
+        self._assert_bash_timeout_raised(_render_job_template("sge_tweak.sh.j2"))

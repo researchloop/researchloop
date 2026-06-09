@@ -9,4 +9,6 @@ Review the file: red_team_round_{{ round_number }}.md
 - Document what you changed and why in fixes_round_{{ round_number }}.md
 - Do not break existing working functionality
 - Update progress.md with what you're fixing and the results
-- Run any re-training or re-evaluation commands using the long-running-command patterns from the research step: either (A) a single blocking foreground Bash call with an explicit `timeout` (in milliseconds, up to `86400000` for 24 hours), or (B) `run_in_background: true` while you do other work, ending with a blocking `wait` on a completion sentinel as your LAST action. NEVER use `nohup`, `setsid`, `disown`, or bare `&` to detach work, and NEVER end your turn while any process you started is still running — this is a one-shot `claude -p` session and any still-running task is killed when you end your turn.
+- Run any re-training or re-evaluation commands following the long-running-command rules below.
+
+{% include "_long_running_commands.md.j2" %}

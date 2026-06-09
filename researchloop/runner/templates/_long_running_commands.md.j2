@@ -1,0 +1,26 @@
+## Long-running commands — how to run them without losing work
+
+This is a one-shot `claude -p` session: the moment you end your turn, the process exits and ANY still-running background task is killed (~5s grace). Work must never be running when you end your turn. The Bash timeout cap has been raised to 24 hours (`86400000` ms), so long foreground calls are allowed. Use one of these two patterns:
+
+**Option A (default): one blocking foreground call per long-running job.**
+Run each long job as a single synchronous Bash call with an explicit `timeout` parameter sized to the expected duration plus ~50% slack, piped through `tee -a output.log`. The call blocks until done — this is correct, not a problem. If you need small side tasks in parallel, run them inside the SAME call with shell backgrounding and join before the call returns:
+```bash
+python side_task.py 2>&1 | tee -a side.log &
+SIDE_PID=$!
+python long_job.py ... 2>&1 | tee -a output.log
+wait $SIDE_PID
+```
+
+**Option B (only if you need to do other work while a long job runs): background + mandatory join.**
+You may start a long job with `run_in_background: true` and do other useful work (writing scripts, analysis, plots, report scaffolding) while it runs. BUT you must NEVER end your turn while it is running: your LAST action must be a blocking foreground wait on a completion sentinel that the job writes when finished, e.g.:
+```bash
+timeout 10h bash -c 'until [ -f results/<job>.done ]; do sleep 60; done'
+```
+then verify the job actually succeeded (check its log/output) before ending the turn.
+
+Hard rules for both options:
+- Never use `nohup`, `setsid`, `disown`, or bare `&` to detach work you care about.
+- Never end your turn — especially not the report/final step — while any process you started is still running. If in doubt, `wait` first.
+- If a job supports checkpointing, treat checkpoints as crash insurance only: use a coarse schedule (~5-10 per job), not frequent checkpointing.
+
+The `PushNotification`, `Monitor`, `Cron*`, `Task`, `AskUserQuestion`, `EnterPlanMode`, and `EnterWorktree` tools are NOT available in this one-shot mode. Ignore them if they appear in your tool list.
